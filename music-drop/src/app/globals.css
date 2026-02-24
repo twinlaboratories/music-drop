@@ -1,10 +1,15 @@
 @import "tailwindcss";
 
+@theme {
+  --color-brand-pink: #FF0088;
+  --color-card-bg: #1c1c1e;
+  --radius-card: 1.5rem;
+}
+
 :root {
   --background: #ffffff;
   --foreground: #000000;
   --pink-accent: #FF0088;
-
   --padding-std: 20px;
   --radius-lg: 24px;
 }
@@ -13,34 +18,59 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: Helvetica-Neue, sans-serif;
-
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
-//may need to install helvetica neue font
 
 .hero-title {
   font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-  font-weight: bold;
-  font-size: 40px;
-  line-height: 38px;      
-  letter-spacing: -1px;    
+  font-weight: 900;
+  font-size: clamp(2.2rem, 9vw, 3.5rem);
+  line-height: 0.95;
+  letter-spacing: -2px;
   text-transform: lowercase;
 
-  background-image: url('Rectangle_12.png');
+  background-image: url('/Rectangle_12.png');
   background-size: cover;
-  -webkit-background-clip: text; 
+  background-position: center;
+  -webkit-background-clip: text;
   background-clip: text;
-  color: transparent;   
-  
+  color: transparent;
 }
 
-.label-bold{
-  
-font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+.label-bold {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
   font-weight: bold;
   font-size: 14px;
   line-height: 21px;
   color: #000000;
   text-transform: lowercase;
+}
 
+/* ── Floating moodboard images ───────────────────────────────── */
+
+.pink-frame {
+  background: #FF0088;
+  padding: 5px;
+  box-shadow: 2px 5px 18px rgba(0, 0, 0, 0.2);
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+  will-change: transform;
+}
+
+/* Three subtle float variants so images don't all bob in sync */
+@keyframes float-0 {
+  0%,  100% { transform: translateY(0px)   rotate(0deg);  }
+  40%        { transform: translateY(-18px) rotate(1.5deg); }
+  70%        { transform: translateY(-8px)  rotate(-1deg);  }
+}
+@keyframes float-1 {
+  0%,  100% { transform: translateY(0px)   rotate(0deg);   }
+  35%        { transform: translateY(-14px) rotate(-2deg);  }
+  65%        { transform: translateY(-22px) rotate(1deg);   }
+}
+@keyframes float-2 {
+  0%,  100% { transform: translateY(0px)   rotate(0deg);   }
+  50%        { transform: translateY(-20px) rotate(2deg);   }
+  80%        { transform: translateY(-6px)  rotate(-1.5deg);}
 }

@@ -1,26 +1,49 @@
-import SignupForm from "./components/SignupForm";
+import FloatingImages from "./components/FloatingImages";
 
 export default function LandingPage() {
   return (
-    <main className="flex flex-col items-center min-h-screen">
-      <nav className="w-full max-w-2xl flex justify-between p-6">
-        <span className="text-brand-pink font-black text-xl tracking-tighter">there&back</span>
-        <span className="font-bold text-gray-900">TheTwins</span>
-      </nav>
+    <>
+      <FloatingImages />
 
-      <section className="max-w-xl px-6 py-12">
-        <h1 className="text-4xl md:text-5xl font-black leading-[1.1] text-transparent bg-clip-text bg-linear-to-r from-purple-600 to-brand-pink">
-          big corporations put walls up where bridges should be built...
-        </h1>
-        <p className="mt-8 font-bold text-lg">pre-save to listen to holding on now:</p>
-      </section>
-      
-      <section className="w-full max-w-md px-4 pb-20">
-        <div className="bg-card-bg rounded-card p-8 shadow-2xl border border-white/5">
-          <SignupForm />
-        </div>
-      </section>
+      <main className="relative min-h-screen bg-white flex flex-col items-center pb-16">
 
-    </main>
+        {/* Nav */}
+        <nav className="w-full max-w-lg flex justify-between items-center px-6 pt-8 pb-2">
+          <span className="text-brand-pink font-black text-xl tracking-tighter lowercase">
+            there&amp;back
+          </span>
+          <span className="font-black text-black text-xl lowercase">thetwins</span>
+        </nav>
+
+        {/* Hero */}
+        <section className="w-full max-w-lg px-6 pt-6 pb-8">
+          <h1 className="hero-title">
+            pre-save to unlock<br />holding on
+          </h1>
+        </section>
+
+        {/* CoBrand Pre-Save Embed */}
+        <section className="w-full max-w-lg px-4 mb-8">
+          <iframe
+            src="https://drop.cobrand.com/d/TheTwins/newmusic"
+            className="w-full rounded-card border-0"
+            style={{ minHeight: "520px" }}
+            title="Pre-Save — holding on by TheTwins"
+            scrolling="no"
+            frameBorder="0"
+          />
+        </section>
+
+        {/* Message */}
+        <section className="w-full max-w-lg px-6">
+          <p className="label-bold">
+            big corporations put walls up where bridges should be built
+            .........................
+            ....we are going to get this song to you, to bring us together.
+          </p>
+        </section>
+
+      </main>
+    </>
   );
 }
