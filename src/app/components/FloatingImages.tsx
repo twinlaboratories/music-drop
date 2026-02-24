@@ -128,6 +128,29 @@ export default function FloatingImages() {
     []
   );
 
+  const onTouchStart = useCallback(
+    (e: React.TouchEvent, id: number) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      topZ.current += 1;
+      setItems((prev) => {
+        const item = prev.find((it) => it.id === id);
+        if (!item) return prev;
+        drag.current = {
+          id,
+          startMouseX: touch.clientX,
+          startMouseY: touch.clientY,
+          startItemX: item.x,
+          startItemY: item.y,
+        };
+        return prev.map((it) =>
+          it.id === id ? { ...it, dragging: true, z: topZ.current } : it
+        );
+      });
+    },
+    []
+  );
+
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!drag.current) return;
@@ -152,11 +175,40 @@ export default function FloatingImages() {
         prev.map((it) => (it.id === id ? { ...it, dragging: false } : it))
       );
     };
+    const onTouchMove = (e: TouchEvent) => {
+      if (!drag.current) return;
+      e.preventDefault();
+      const touch = e.touches[0];
+      const { id, startMouseX, startMouseY, startItemX, startItemY } = drag.current;
+      setItems((prev) =>
+        prev.map((it) =>
+          it.id === id
+            ? {
+                ...it,
+                x: startItemX + touch.clientX - startMouseX,
+                y: startItemY + touch.clientY - startMouseY,
+              }
+            : it
+        )
+      );
+    };
+    const onTouchEnd = () => {
+      if (!drag.current) return;
+      const id = drag.current.id;
+      drag.current = null;
+      setItems((prev) =>
+        prev.map((it) => (it.id === id ? { ...it, dragging: false } : it))
+      );
+    };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
+    window.addEventListener("touchend", onTouchEnd);
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
     };
   }, []);
 
@@ -181,8 +233,10 @@ export default function FloatingImages() {
             transform: `rotate(${item.rotation}deg)`,
             cursor: item.dragging ? "grabbing" : "grab",
             pointerEvents: "auto",
+            touchAction: "none",
           }}
           onMouseDown={(e) => onMouseDown(e, item.id)}
+          onTouchStart={(e) => onTouchStart(e, item.id)}
         >
           <div
             className="pink-frame"
