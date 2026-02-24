@@ -110,22 +110,22 @@ export default function FloatingImages() {
     (e: React.MouseEvent, id: number) => {
       e.preventDefault();
       topZ.current += 1;
-      const item = items.find((it) => it.id === id);
-      if (!item) return;
-      drag.current = {
-        id,
-        startMouseX: e.clientX,
-        startMouseY: e.clientY,
-        startItemX: item.x,
-        startItemY: item.y,
-      };
-      setItems((prev) =>
-        prev.map((it) =>
+      setItems((prev) => {
+        const item = prev.find((it) => it.id === id);
+        if (!item) return prev;
+        drag.current = {
+          id,
+          startMouseX: e.clientX,
+          startMouseY: e.clientY,
+          startItemX: item.x,
+          startItemY: item.y,
+        };
+        return prev.map((it) =>
           it.id === id ? { ...it, dragging: true, z: topZ.current } : it
-        )
-      );
+        );
+      });
     },
-    [items]
+    []
   );
 
   useEffect(() => {
