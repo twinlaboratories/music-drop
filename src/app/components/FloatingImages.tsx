@@ -78,11 +78,13 @@ type DragState = {
   startMouseY: number;
   startItemX: number;
   startItemY: number;
+  promoted: boolean;
 };
 
 export default function FloatingImages() {
   const [items, setItems] = useState<Item[]>([]);
   const [revealed, setRevealed] = useState(false);
+  const [draggingId, setDraggingId] = useState<number | null>(null);
   const drag = useRef<DragState | null>(null);
   const topZ = useRef(100);
 
@@ -179,6 +181,7 @@ export default function FloatingImages() {
           startMouseY: e.clientY,
           startItemX: item.x,
           startItemY: item.y,
+          promoted: false,
         };
         return prev.map((it) =>
           it.id === id ? { ...it, dragging: true, z: topZ.current } : it
@@ -203,6 +206,7 @@ export default function FloatingImages() {
           startMouseY: touch.clientY,
           startItemX: item.x,
           startItemY: item.y,
+          promoted: false,
         };
         return prev.map((it) =>
           it.id === id ? { ...it, dragging: true, z: topZ.current } : it
@@ -216,15 +220,15 @@ export default function FloatingImages() {
     const onMove = (e: MouseEvent) => {
       if (!drag.current) return;
       const { id, startMouseX, startMouseY, startItemX, startItemY } = drag.current;
+      const dx = e.clientX - startMouseX;
+      const dy = e.clientY - startMouseY;
+      if (!drag.current.promoted && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+        drag.current.promoted = true;
+        setDraggingId(id);
+      }
       setItems((prev) =>
         prev.map((it) =>
-          it.id === id
-            ? {
-                ...it,
-                x: startItemX + e.clientX - startMouseX,
-                y: startItemY + e.clientY - startMouseY,
-              }
-            : it
+          it.id === id ? { ...it, x: startItemX + dx, y: startItemY + dy } : it
         )
       );
     };
@@ -235,21 +239,22 @@ export default function FloatingImages() {
       setItems((prev) =>
         prev.map((it) => (it.id === id ? { ...it, dragging: false } : it))
       );
+      setDraggingId(null);
     };
     const onTouchMove = (e: TouchEvent) => {
       if (!drag.current) return;
       e.preventDefault();
       const touch = e.touches[0];
       const { id, startMouseX, startMouseY, startItemX, startItemY } = drag.current;
+      const dx = touch.clientX - startMouseX;
+      const dy = touch.clientY - startMouseY;
+      if (!drag.current.promoted && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+        drag.current.promoted = true;
+        setDraggingId(id);
+      }
       setItems((prev) =>
         prev.map((it) =>
-          it.id === id
-            ? {
-                ...it,
-                x: startItemX + touch.clientX - startMouseX,
-                y: startItemY + touch.clientY - startMouseY,
-              }
-            : it
+          it.id === id ? { ...it, x: startItemX + dx, y: startItemY + dy } : it
         )
       );
     };
@@ -260,6 +265,7 @@ export default function FloatingImages() {
       setItems((prev) =>
         prev.map((it) => (it.id === id ? { ...it, dragging: false } : it))
       );
+      setDraggingId(null);
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -275,6 +281,9 @@ export default function FloatingImages() {
 
   if (items.length === 0) return null;
 
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
   return (
     // pointer-events:none on the container — only individual image divs are interactive
     <div
@@ -282,7 +291,24 @@ export default function FloatingImages() {
       style={{ zIndex: 10, pointerEvents: "none" }}
       aria-hidden="true"
     >
-      {items.map((item) => (
+      {items.map((item) => {
+        const isDragged = item.id === draggingId;
+        const isScatterTarget = draggingId !== null && !isDragged;
+
+        let scatterTx = 0;
+        let scatterTy = 0;
+        if (isScatterTarget) {
+          const cx = vw / 2;
+          const cy = vh / 2;
+          const dx = (item.x + item.width / 2 - cx) || 1;
+          const dy = (item.y + item.width / 2 - cy) || 1;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const push = Math.max(vw, vh) * 1.6;
+          scatterTx = Math.round((dx / dist) * push);
+          scatterTy = Math.round((dy / dist) * push);
+        }
+
+        return (
         <div
           key={item.id}
           className="absolute select-none"
@@ -291,13 +317,18 @@ export default function FloatingImages() {
             top: item.y,
             width: item.width,
             zIndex: item.z,
-            transform: `rotate(${item.rotation}deg)`,
+            transform: isScatterTarget
+              ? `translate(${scatterTx}px, ${scatterTy}px) rotate(${item.rotation}deg)`
+              : `rotate(${item.rotation}deg)`,
+            opacity: isScatterTarget ? 0 : 1,
             cursor: item.dragging ? "grabbing" : "grab",
-            transition: item.dragging
+            transition: isDragged
               ? "none"
-              : "left 700ms cubic-bezier(0.22, 1, 0.36, 1), top 700ms cubic-bezier(0.22, 1, 0.36, 1), transform 700ms cubic-bezier(0.22, 1, 0.36, 1)",
-            pointerEvents: revealed ? "none" : "auto",
-            touchAction: revealed ? "auto" : "none",
+              : isScatterTarget
+              ? "transform 0.45s ease, opacity 0.35s ease"
+              : "left 700ms cubic-bezier(0.22, 1, 0.36, 1), top 700ms cubic-bezier(0.22, 1, 0.36, 1), transform 700ms cubic-bezier(0.22, 1, 0.36, 1), opacity 400ms ease",
+            pointerEvents: (revealed || isScatterTarget) ? "none" : "auto",
+            touchAction: (revealed || isScatterTarget) ? "auto" : "none",
           }}
           onMouseDown={(e) => onMouseDown(e, item.id)}
           onTouchStart={(e) => onTouchStart(e, item.id)}
@@ -307,7 +338,7 @@ export default function FloatingImages() {
             className="pink-frame"
             style={{
               animationName:
-                revealed || item.dragging ? "none" : `float-${item.floatVariant}`,
+                revealed || item.dragging || isScatterTarget ? "none" : `float-${item.floatVariant}`,
               animationDuration: `${item.duration}s`,
               animationDelay: `-${item.delay}s`,
             }}
@@ -329,7 +360,8 @@ export default function FloatingImages() {
             />
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
