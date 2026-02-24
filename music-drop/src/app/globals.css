@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #000000;
+  --pink-accent: #FF0088;
+
+  --padding-std: 20px;
+  --radius-lg: 24px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: Helvetica-Neue, sans-serif;
+
+}
+//may need to install helvetica neue font
+
+.hero-title {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-weight: bold;
+  font-size: 40px;
+  line-height: 38px;      
+  letter-spacing: -1px;    
+  text-transform: lowercase;
+
+  background-image: url('Rectangle_12.png');
+  background-size: cover;
+  -webkit-background-clip: text; 
+  background-clip: text;
+  color: transparent;   
+  
+}
+
+.label-bold{
+  
+font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-weight: bold;
+  font-size: 14px;
+  line-height: 21px;
+  color: #000000;
+  text-transform: lowercase;
+
+}
