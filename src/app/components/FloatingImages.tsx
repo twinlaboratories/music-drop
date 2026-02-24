@@ -82,6 +82,7 @@ type DragState = {
 
 export default function FloatingImages() {
   const [items, setItems] = useState<Item[]>([]);
+  const [revealed, setRevealed] = useState(false);
   const drag = useRef<DragState | null>(null);
   const topZ = useRef(100);
 
@@ -106,8 +107,67 @@ export default function FloatingImages() {
     );
   }, []);
 
+  const scatterToEdges = useCallback((prev: Item[], W: number, H: number) => {
+    const margin = Math.max(12, Math.min(28, Math.round(Math.min(W, H) * 0.04)));
+    return prev.map((it) => {
+      const size = it.width;
+      const maxX = Math.max(margin, W - size - margin);
+      const maxY = Math.max(margin, H - size - margin);
+      const side = Math.floor(sr(it.id * 19 + 99) * 4); // 0..3
+      const t = sr(it.id * 23 + 77);
+
+      let x = it.x;
+      let y = it.y;
+      if (side === 0) {
+        x = margin + t * (maxX - margin);
+        y = margin;
+      } else if (side === 1) {
+        x = margin + t * (maxX - margin);
+        y = maxY;
+      } else if (side === 2) {
+        x = margin;
+        y = margin + t * (maxY - margin);
+      } else {
+        x = maxX;
+        y = margin + t * (maxY - margin);
+      }
+
+      return {
+        ...it,
+        x: Math.min(maxX, Math.max(margin, x)),
+        y: Math.min(maxY, Math.max(margin, y)),
+        z: 1 + it.id,
+        dragging: false,
+      };
+    });
+  }, []);
+
+  useEffect(() => {
+    const onPointerDown = (e: PointerEvent) => {
+      if (revealed) return;
+      const isMobile =
+        (typeof window !== "undefined" &&
+          (window.matchMedia?.("(pointer: coarse)").matches ??
+            window.innerWidth < 768)) ??
+        false;
+      if (!isMobile) return;
+
+      const target = e.target as unknown;
+      if (target instanceof Element) {
+        if (target.closest('[data-floating-image="true"]')) return;
+      }
+
+      setRevealed(true);
+      setItems((prev) => scatterToEdges(prev, window.innerWidth, window.innerHeight));
+    };
+
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  }, [revealed, scatterToEdges]);
+
   const onMouseDown = useCallback(
     (e: React.MouseEvent, id: number) => {
+      if (revealed) return;
       e.preventDefault();
       topZ.current += 1;
       setItems((prev) => {
@@ -125,11 +185,12 @@ export default function FloatingImages() {
         );
       });
     },
-    []
+    [revealed]
   );
 
   const onTouchStart = useCallback(
     (e: React.TouchEvent, id: number) => {
+      if (revealed) return;
       e.preventDefault();
       const touch = e.touches[0];
       topZ.current += 1;
@@ -148,7 +209,7 @@ export default function FloatingImages() {
         );
       });
     },
-    []
+    [revealed]
   );
 
   useEffect(() => {
@@ -232,16 +293,21 @@ export default function FloatingImages() {
             zIndex: item.z,
             transform: `rotate(${item.rotation}deg)`,
             cursor: item.dragging ? "grabbing" : "grab",
-            pointerEvents: "auto",
-            touchAction: "none",
+            transition: item.dragging
+              ? "none"
+              : "left 700ms cubic-bezier(0.22, 1, 0.36, 1), top 700ms cubic-bezier(0.22, 1, 0.36, 1), transform 700ms cubic-bezier(0.22, 1, 0.36, 1)",
+            pointerEvents: revealed ? "none" : "auto",
+            touchAction: revealed ? "auto" : "none",
           }}
           onMouseDown={(e) => onMouseDown(e, item.id)}
           onTouchStart={(e) => onTouchStart(e, item.id)}
+          data-floating-image="true"
         >
           <div
             className="pink-frame"
             style={{
-              animationName: item.dragging ? "none" : `float-${item.floatVariant}`,
+              animationName:
+                revealed || item.dragging ? "none" : `float-${item.floatVariant}`,
               animationDuration: `${item.duration}s`,
               animationDelay: `-${item.delay}s`,
             }}
