@@ -95,14 +95,8 @@ export default function FloatingImages() {
     const H = window.innerHeight;
     setItems(
       DISPLAYED.map((src, i) => {
-        // ~55% top cluster: y from -0.30H to +0.14H (above/inside hero area)
-        // ~45% bottom cluster: y from +0.78H to +1.35H (below presave fold)
-        const inTop = sr(i * 29 + 5) < 0.55;
-        const y = inTop
-          ? sr(i * 13 + 2) * H * 0.44 - H * 0.30
-          : sr(i * 13 + 2) * H * 0.57 + H * 0.78;
-        // x spread slightly wider than viewport so images partially bleed off sides
-        const x = sr(i * 7 + 1) * W * 1.15 - W * 0.08;
+        const x = sr(i * 7 + 1) * W * 0.92 - 10;
+        const y = sr(i * 13 + 2) * H * 1.3 - H * 0.15;
         return {
           id: i,
           src,
