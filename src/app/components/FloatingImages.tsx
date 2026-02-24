@@ -70,6 +70,7 @@ interface Item {
   duration: number;
   z: number;
   dragging: boolean;
+  dissolved: boolean;
 }
 
 type DragState = {
@@ -78,143 +79,88 @@ type DragState = {
   startMouseY: number;
   startItemX: number;
   startItemY: number;
-  promoted: boolean;
+  promoted: boolean; // true once finger/cursor moves > 8px (it's a drag, not a tap)
 };
 
 export default function FloatingImages() {
   const [items, setItems] = useState<Item[]>([]);
-  const [revealed, setRevealed] = useState(false);
-  const [draggingId, setDraggingId] = useState<number | null>(null);
   const drag = useRef<DragState | null>(null);
   const topZ = useRef(100);
 
-  // Initialise positions client-side only (avoids SSR/hydration mismatch)
+  // Initialise positions client-side only (avoids SSR/hydration mismatch).
+  // Images are split into a top cluster (above the presave iframe) and a
+  // bottom cluster (below the fold) so the presave buttons stay visible.
   useEffect(() => {
     const W = window.innerWidth;
     const H = window.innerHeight;
     setItems(
-      DISPLAYED.map((src, i) => ({
-        id: i,
-        src,
-        x: sr(i * 7 + 1) * W * 0.92 - 10,
-        y: sr(i * 13 + 2) * H * 1.3 - H * 0.15,
-        rotation: (sr(i * 3 + 3) - 0.5) * 44,
-        width: Math.round(sr(i * 11 + 4) * 80 + 90),
-        floatVariant: i % 3,
-        delay: sr(i * 5 + 5) * 12,
-        duration: sr(i * 17 + 6) * 8 + 12,
-        z: 10 + i,
-        dragging: false,
-      }))
+      DISPLAYED.map((src, i) => {
+        // ~55% top cluster: y from -0.30H to +0.14H (above/inside hero area)
+        // ~45% bottom cluster: y from +0.78H to +1.35H (below presave fold)
+        const inTop = sr(i * 29 + 5) < 0.55;
+        const y = inTop
+          ? sr(i * 13 + 2) * H * 0.44 - H * 0.30
+          : sr(i * 13 + 2) * H * 0.57 + H * 0.78;
+        // x spread slightly wider than viewport so images partially bleed off sides
+        const x = sr(i * 7 + 1) * W * 1.15 - W * 0.08;
+        return {
+          id: i,
+          src,
+          x,
+          y,
+          rotation: (sr(i * 3 + 3) - 0.5) * 44,
+          width: Math.round(sr(i * 11 + 4) * 80 + 90),
+          floatVariant: i % 3,
+          delay: sr(i * 5 + 5) * 12,
+          duration: sr(i * 17 + 6) * 8 + 12,
+          z: 10 + i,
+          dragging: false,
+          dissolved: false,
+        };
+      })
     );
   }, []);
 
-  const scatterToEdges = useCallback((prev: Item[], W: number, H: number) => {
-    const margin = Math.max(12, Math.min(28, Math.round(Math.min(W, H) * 0.04)));
-    return prev.map((it) => {
-      const size = it.width;
-      const maxX = Math.max(margin, W - size - margin);
-      const maxY = Math.max(margin, H - size - margin);
-      const side = Math.floor(sr(it.id * 19 + 99) * 4); // 0..3
-      const t = sr(it.id * 23 + 77);
-
-      let x = it.x;
-      let y = it.y;
-      if (side === 0) {
-        x = margin + t * (maxX - margin);
-        y = margin;
-      } else if (side === 1) {
-        x = margin + t * (maxX - margin);
-        y = maxY;
-      } else if (side === 2) {
-        x = margin;
-        y = margin + t * (maxY - margin);
-      } else {
-        x = maxX;
-        y = margin + t * (maxY - margin);
-      }
-
-      return {
-        ...it,
-        x: Math.min(maxX, Math.max(margin, x)),
-        y: Math.min(maxY, Math.max(margin, y)),
-        z: 1 + it.id,
-        dragging: false,
+  const onMouseDown = useCallback((e: React.MouseEvent, id: number) => {
+    e.preventDefault();
+    topZ.current += 1;
+    setItems((prev) => {
+      const item = prev.find((it) => it.id === id);
+      if (!item) return prev;
+      drag.current = {
+        id,
+        startMouseX: e.clientX,
+        startMouseY: e.clientY,
+        startItemX: item.x,
+        startItemY: item.y,
+        promoted: false,
       };
+      return prev.map((it) =>
+        it.id === id ? { ...it, dragging: true, z: topZ.current } : it
+      );
     });
   }, []);
 
-  useEffect(() => {
-    const onPointerDown = (e: PointerEvent) => {
-      if (revealed) return;
-      const isMobile =
-        (typeof window !== "undefined" &&
-          (window.matchMedia?.("(pointer: coarse)").matches ??
-            window.innerWidth < 768)) ??
-        false;
-      if (!isMobile) return;
-
-      const target = e.target as unknown;
-      if (target instanceof Element) {
-        if (target.closest('[data-floating-image="true"]')) return;
-      }
-
-      setRevealed(true);
-      setItems((prev) => scatterToEdges(prev, window.innerWidth, window.innerHeight));
-    };
-
-    window.addEventListener("pointerdown", onPointerDown, true);
-    return () => window.removeEventListener("pointerdown", onPointerDown, true);
-  }, [revealed, scatterToEdges]);
-
-  const onMouseDown = useCallback(
-    (e: React.MouseEvent, id: number) => {
-      if (revealed) return;
-      e.preventDefault();
-      topZ.current += 1;
-      setItems((prev) => {
-        const item = prev.find((it) => it.id === id);
-        if (!item) return prev;
-        drag.current = {
-          id,
-          startMouseX: e.clientX,
-          startMouseY: e.clientY,
-          startItemX: item.x,
-          startItemY: item.y,
-          promoted: false,
-        };
-        return prev.map((it) =>
-          it.id === id ? { ...it, dragging: true, z: topZ.current } : it
-        );
-      });
-    },
-    [revealed]
-  );
-
-  const onTouchStart = useCallback(
-    (e: React.TouchEvent, id: number) => {
-      if (revealed) return;
-      e.preventDefault();
-      const touch = e.touches[0];
-      topZ.current += 1;
-      setItems((prev) => {
-        const item = prev.find((it) => it.id === id);
-        if (!item) return prev;
-        drag.current = {
-          id,
-          startMouseX: touch.clientX,
-          startMouseY: touch.clientY,
-          startItemX: item.x,
-          startItemY: item.y,
-          promoted: false,
-        };
-        return prev.map((it) =>
-          it.id === id ? { ...it, dragging: true, z: topZ.current } : it
-        );
-      });
-    },
-    [revealed]
-  );
+  const onTouchStart = useCallback((e: React.TouchEvent, id: number) => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    topZ.current += 1;
+    setItems((prev) => {
+      const item = prev.find((it) => it.id === id);
+      if (!item) return prev;
+      drag.current = {
+        id,
+        startMouseX: touch.clientX,
+        startMouseY: touch.clientY,
+        startItemX: item.x,
+        startItemY: item.y,
+        promoted: false,
+      };
+      return prev.map((it) =>
+        it.id === id ? { ...it, dragging: true, z: topZ.current } : it
+      );
+    });
+  }, []);
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -224,7 +170,6 @@ export default function FloatingImages() {
       const dy = e.clientY - startMouseY;
       if (!drag.current.promoted && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
         drag.current.promoted = true;
-        setDraggingId(id);
       }
       setItems((prev) =>
         prev.map((it) =>
@@ -232,15 +177,20 @@ export default function FloatingImages() {
         )
       );
     };
+
     const onUp = () => {
       if (!drag.current) return;
       const id = drag.current.id;
+      const wasTap = !drag.current.promoted;
       drag.current = null;
       setItems((prev) =>
-        prev.map((it) => (it.id === id ? { ...it, dragging: false } : it))
+        prev.map((it) => {
+          if (it.id !== id) return it;
+          return { ...it, dragging: false, dissolved: wasTap ? true : it.dissolved };
+        })
       );
-      setDraggingId(null);
     };
+
     const onTouchMove = (e: TouchEvent) => {
       if (!drag.current) return;
       e.preventDefault();
@@ -250,7 +200,6 @@ export default function FloatingImages() {
       const dy = touch.clientY - startMouseY;
       if (!drag.current.promoted && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
         drag.current.promoted = true;
-        setDraggingId(id);
       }
       setItems((prev) =>
         prev.map((it) =>
@@ -258,15 +207,20 @@ export default function FloatingImages() {
         )
       );
     };
+
     const onTouchEnd = () => {
       if (!drag.current) return;
       const id = drag.current.id;
+      const wasTap = !drag.current.promoted;
       drag.current = null;
       setItems((prev) =>
-        prev.map((it) => (it.id === id ? { ...it, dragging: false } : it))
+        prev.map((it) => {
+          if (it.id !== id) return it;
+          return { ...it, dragging: false, dissolved: wasTap ? true : it.dissolved };
+        })
       );
-      setDraggingId(null);
     };
+
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
     window.addEventListener("touchmove", onTouchMove, { passive: false });
@@ -281,34 +235,13 @@ export default function FloatingImages() {
 
   if (items.length === 0) return null;
 
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-
   return (
-    // pointer-events:none on the container — only individual image divs are interactive
     <div
       className="fixed inset-0 overflow-visible"
       style={{ zIndex: 10, pointerEvents: "none" }}
       aria-hidden="true"
     >
-      {items.map((item) => {
-        const isDragged = item.id === draggingId;
-        const isScatterTarget = draggingId !== null && !isDragged;
-
-        let scatterTx = 0;
-        let scatterTy = 0;
-        if (isScatterTarget) {
-          const cx = vw / 2;
-          const cy = vh / 2;
-          const dx = (item.x + item.width / 2 - cx) || 1;
-          const dy = (item.y + item.width / 2 - cy) || 1;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const push = Math.max(vw, vh) * 1.6;
-          scatterTx = Math.round((dx / dist) * push);
-          scatterTy = Math.round((dy / dist) * push);
-        }
-
-        return (
+      {items.map((item) => (
         <div
           key={item.id}
           className="absolute select-none"
@@ -317,28 +250,24 @@ export default function FloatingImages() {
             top: item.y,
             width: item.width,
             zIndex: item.z,
-            transform: isScatterTarget
-              ? `translate(${scatterTx}px, ${scatterTy}px) rotate(${item.rotation}deg)`
-              : `rotate(${item.rotation}deg)`,
-            opacity: isScatterTarget ? 0 : 1,
-            cursor: item.dragging ? "grabbing" : "grab",
-            transition: isDragged
+            transform: `rotate(${item.rotation}deg)`,
+            opacity: item.dissolved ? 0 : 1,
+            cursor: item.dissolved ? "default" : item.dragging ? "grabbing" : "grab",
+            transition: item.dissolved
+              ? "opacity 0.5s ease"
+              : item.dragging
               ? "none"
-              : isScatterTarget
-              ? "transform 0.45s ease, opacity 0.35s ease"
-              : "left 700ms cubic-bezier(0.22, 1, 0.36, 1), top 700ms cubic-bezier(0.22, 1, 0.36, 1), transform 700ms cubic-bezier(0.22, 1, 0.36, 1), opacity 400ms ease",
-            pointerEvents: (revealed || isScatterTarget) ? "none" : "auto",
-            touchAction: (revealed || isScatterTarget) ? "auto" : "none",
+              : "left 700ms cubic-bezier(0.22, 1, 0.36, 1), top 700ms cubic-bezier(0.22, 1, 0.36, 1)",
+            pointerEvents: item.dissolved ? "none" : "auto",
+            touchAction: item.dissolved ? "auto" : "none",
           }}
           onMouseDown={(e) => onMouseDown(e, item.id)}
           onTouchStart={(e) => onTouchStart(e, item.id)}
-          data-floating-image="true"
         >
           <div
             className="pink-frame"
             style={{
-              animationName:
-                revealed || item.dragging || isScatterTarget ? "none" : `float-${item.floatVariant}`,
+              animationName: item.dragging || item.dissolved ? "none" : `float-${item.floatVariant}`,
               animationDuration: `${item.duration}s`,
               animationDelay: `-${item.delay}s`,
             }}
@@ -360,8 +289,7 @@ export default function FloatingImages() {
             />
           </div>
         </div>
-        );
-      })}
+      ))}
     </div>
   );
 }
