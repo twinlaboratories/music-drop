@@ -18,7 +18,7 @@ export default function LandingPage() {
         {/* Hero */}
         <section className="w-full max-w-lg px-6 pt-6 pb-8">
           <h1 className="hero-title">
-            pre-save to unlock<br />holding on
+            pre-save to hear first
           </h1>
         </section>
 
