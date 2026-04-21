@@ -71,6 +71,7 @@ interface Item {
   z: number;
   dragging: boolean;
   dissolved: boolean;
+  frameColor: "pink" | "lime";
 }
 
 type DragState = {
@@ -79,39 +80,53 @@ type DragState = {
   startMouseY: number;
   startItemX: number;
   startItemY: number;
-  promoted: boolean; // true once finger/cursor moves > 8px (it's a drag, not a tap)
+  promoted: boolean;
 };
 
+// Generate stable initial items to prevent hydration mismatch and re-renders
+function generateInitialItems(): Item[] {
+  // Use fixed dimensions for SSR consistency, then adjust client-side
+  const W = 1200;
+  const H = 800;
+  return DISPLAYED.map((src, i) => {
+    const x = sr(i * 7 + 1) * W * 0.92 - 10;
+    const y = sr(i * 13 + 2) * H * 1.3 - H * 0.15;
+    return {
+      id: i,
+      src,
+      x,
+      y,
+      rotation: (sr(i * 3 + 3) - 0.5) * 44,
+      width: Math.round(sr(i * 11 + 4) * 80 + 90),
+      floatVariant: i % 3,
+      delay: sr(i * 5 + 5) * 12,
+      duration: sr(i * 17 + 6) * 8 + 12,
+      z: 10 + i,
+      dragging: false,
+      dissolved: false,
+      frameColor: i % 2 === 0 ? "pink" : "lime", // Alternate colors
+    };
+  });
+}
+
 export default function FloatingImages() {
-  const [items, setItems] = useState<Item[]>([]);
+  // Initialize with stable items to prevent hydration mismatch
+  const [items, setItems] = useState<Item[]>(generateInitialItems);
+  const [mounted, setMounted] = useState(false);
   const drag = useRef<DragState | null>(null);
   const topZ = useRef(100);
 
-  // Initialise positions client-side only (avoids SSR/hydration mismatch).
-  // Images are split into a top cluster (above the presave iframe) and a
-  // bottom cluster (below the fold) so the presave buttons stay visible.
+  // Mark as mounted and adjust positions to actual viewport (once only)
   useEffect(() => {
+    setMounted(true);
     const W = window.innerWidth;
     const H = window.innerHeight;
-    setItems(
-      DISPLAYED.map((src, i) => {
-        const x = sr(i * 7 + 1) * W * 0.92 - 10;
-        const y = sr(i * 13 + 2) * H * 1.3 - H * 0.15;
-        return {
-          id: i,
-          src,
-          x,
-          y,
-          rotation: (sr(i * 3 + 3) - 0.5) * 44,
-          width: Math.round(sr(i * 11 + 4) * 80 + 90),
-          floatVariant: i % 3,
-          delay: sr(i * 5 + 5) * 12,
-          duration: sr(i * 17 + 6) * 8 + 12,
-          z: 10 + i,
-          dragging: false,
-          dissolved: false,
-        };
-      })
+    setItems((prev) =>
+      prev.map((item, i) => ({
+        ...item,
+        x: sr(i * 7 + 1) * W * 0.92 - 10,
+        y: sr(i * 13 + 2) * H * 1.3 - H * 0.15,
+      }))
     );
   }, []);
 
@@ -227,7 +242,8 @@ export default function FloatingImages() {
     };
   }, []);
 
-  if (items.length === 0) return null;
+  // Prevent flash of unstyled content - wait for client mount
+  if (!mounted) return null;
 
   return (
     <div
@@ -259,7 +275,7 @@ export default function FloatingImages() {
           onTouchStart={(e) => onTouchStart(e, item.id)}
         >
           <div
-            className="pink-frame"
+            className={item.frameColor === "pink" ? "pink-frame" : "lime-frame"}
             style={{
               animationName: item.dragging || item.dissolved ? "none" : `float-${item.floatVariant}`,
               animationDuration: `${item.duration}s`,

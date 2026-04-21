@@ -5,7 +5,7 @@ export default function LandingPage() {
     <>
       <FloatingImages />
 
-      <main className="relative min-h-screen bg-white flex flex-col items-center pb-16">
+      <main className="relative min-h-screen flex flex-col items-center pb-16 bg-gradient-to-br from-[#FF69B4]/30 via-[#ADFF2F]/25 to-white">
 
         {/* Nav */}
         <nav className="w-full max-w-lg flex justify-between items-center px-6 pt-8 pb-2">
@@ -37,9 +37,7 @@ export default function LandingPage() {
         {/* Message */}
         <section className="w-full max-w-lg px-6">
           <p className="label-bold">
-            big corporations put walls up where bridges should be built
-            .........................
-            ....we are going to get this song to you, to bring us together.
+            There&amp;Back, out soon
           </p>
         </section>
 
