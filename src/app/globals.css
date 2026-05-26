@@ -57,6 +57,7 @@
   animation-iteration-count: infinite;
   animation-fill-mode: both;
   will-change: transform;
+  border-radius: 4px;
 }
 
 .lime-frame {
@@ -67,6 +68,7 @@
   animation-iteration-count: infinite;
   animation-fill-mode: both;
   will-change: transform;
+  border-radius: 4px;
 }
 
 /* Three subtle float variants so images don't all bob in sync */
