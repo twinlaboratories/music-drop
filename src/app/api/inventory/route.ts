@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   buildInitialInventoryFromProducts,
   catalogInventoryForClient,
-  getTshirtInventory,
+  getInventoryWithMeta,
   syncInventoryFromProducts,
 } from "@/lib/inventory";
 
 export async function GET() {
   try {
-    const inventory = await getTshirtInventory();
-    return NextResponse.json({ inventory, source: "store" });
+    const { inventory, source } = await getInventoryWithMeta();
+    return NextResponse.json({ inventory, source });
   } catch (error) {
     console.error("Inventory read error:", error);
     return NextResponse.json({

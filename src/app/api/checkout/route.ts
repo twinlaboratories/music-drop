@@ -70,15 +70,15 @@ export async function POST(req: NextRequest) {
         }
 
         const size = selectedSize as ShirtSize;
-        const reserved = await reserveTshirtStock(productId, size, quantity);
-        if (!reserved) {
+        const reserve = await reserveTshirtStock(productId, size, quantity);
+        if (!reserve.ok) {
           await releaseReservations(reservations);
-          return NextResponse.json(
-            {
-              error: `Not enough stock for ${product.name} (${selectedSize}). Please refresh and try again.`,
-            },
-            { status: 409 }
-          );
+          const status = reserve.reason === "storage" ? 503 : 409;
+          const error =
+            reserve.reason === "storage"
+              ? reserve.message
+              : `Not enough stock for ${product.name} (${selectedSize}). Please refresh and try again.`;
+          return NextResponse.json({ error }, { status });
         }
         reservations.push({ productId, size, quantity });
       }

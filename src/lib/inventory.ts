@@ -6,9 +6,13 @@ import { PRODUCTS } from "@/config/products";
 export type ShirtSize = "S" | "M" | "L" | "XL";
 export type TshirtInventory = Record<string, Record<ShirtSize, number>>;
 export type StockReservation = { productId: string; size: ShirtSize; quantity: number };
+export type ReserveResult =
+  | { ok: true }
+  | { ok: false; reason: "insufficient" | "storage"; message: string };
 
+const SIZES: ShirtSize[] = ["S", "M", "L", "XL"];
 const DATA_FILE = path.join(process.cwd(), "data", "tshirt-inventory.json");
-const INVENTORY_KEY = "tshirt-inventory:v1";
+const LEGACY_INVENTORY_KEY = "tshirt-inventory:v1";
 
 function getRedis(): Redis | null {
   const url = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
@@ -17,9 +21,12 @@ function getRedis(): Redis | null {
   return new Redis({ url, token });
 }
 
-/** Vercel serverless has a read-only filesystem; only use files in local dev */
 function canUseFileStorage(): boolean {
   return process.env.NODE_ENV === "development" && !process.env.VERCEL;
+}
+
+function skuKey(productId: string, size: ShirtSize): string {
+  return `inv:${productId}:${size}`;
 }
 
 function reservationKey(sessionId: string): string {
@@ -43,6 +50,12 @@ export function buildInitialInventoryFromProducts(): TshirtInventory {
   return inventory;
 }
 
+function initialStockFor(productId: string, size: ShirtSize): number {
+  const product = PRODUCTS.find((p) => p.id === productId);
+  const entry = product?.sizes?.find((s) => s.label === size);
+  return entry?.stock ?? 0;
+}
+
 async function readFileInventory(): Promise<TshirtInventory> {
   try {
     const raw = await fs.readFile(DATA_FILE, "utf-8");
@@ -62,81 +75,145 @@ async function writeFileInventory(inventory: TshirtInventory): Promise<void> {
   await fs.writeFile(DATA_FILE, JSON.stringify(inventory, null, 2));
 }
 
-async function readRedisInventory(redis: Redis): Promise<TshirtInventory | null> {
-  return (await redis.get<TshirtInventory>(INVENTORY_KEY)) ?? null;
+/** One-time: replace depleted legacy JSON blob with per-SKU keys from catalog */
+async function migrateLegacyBlob(redis: Redis): Promise<void> {
+  const legacy = await redis.get(LEGACY_INVENTORY_KEY);
+  if (legacy === null || legacy === undefined) return;
+
+  const catalog = buildInitialInventoryFromProducts();
+  for (const [productId, sizes] of Object.entries(catalog)) {
+    for (const size of SIZES) {
+      await redis.set(skuKey(productId, size), sizes[size]);
+    }
+  }
+  await redis.del(LEGACY_INVENTORY_KEY);
 }
 
-async function writeRedisInventory(redis: Redis, inventory: TshirtInventory): Promise<void> {
-  await redis.set(INVENTORY_KEY, inventory);
+async function ensureSkuStock(redis: Redis, productId: string, size: ShirtSize): Promise<number> {
+  const key = skuKey(productId, size);
+  const current = await redis.get<number>(key);
+  if (current !== null && current !== undefined) {
+    return Number(current);
+  }
+  const initial = initialStockFor(productId, size);
+  await redis.set(key, initial);
+  return initial;
 }
 
-async function loadInventory(): Promise<TshirtInventory> {
+async function loadRedisInventory(redis: Redis): Promise<TshirtInventory> {
+  await migrateLegacyBlob(redis);
+
+  const inventory: TshirtInventory = {};
+  for (const product of PRODUCTS) {
+    if (product.type !== "tshirt") continue;
+    const sizeMap: Record<ShirtSize, number> = { S: 0, M: 0, L: 0, XL: 0 };
+    for (const size of SIZES) {
+      sizeMap[size] = await ensureSkuStock(redis, product.id, size);
+    }
+    inventory[product.id] = sizeMap;
+  }
+  return inventory;
+}
+
+async function loadInventory(): Promise<{ inventory: TshirtInventory; source: "redis" | "file" | "catalog" }> {
   const redis = getRedis();
   if (redis) {
     try {
-      const stored = await readRedisInventory(redis);
-      if (stored) return stored;
-      const initial = buildInitialInventoryFromProducts();
-      await writeRedisInventory(redis, initial);
-      return initial;
+      const inventory = await loadRedisInventory(redis);
+      return { inventory, source: "redis" };
     } catch (error) {
-      console.error("Redis inventory read failed, using catalog:", error);
-      return buildInitialInventoryFromProducts();
+      console.error("Redis inventory read failed:", error);
+      return { inventory: buildInitialInventoryFromProducts(), source: "catalog" };
     }
   }
 
   if (canUseFileStorage()) {
-    return readFileInventory();
+    return { inventory: await readFileInventory(), source: "file" };
   }
 
-  return buildInitialInventoryFromProducts();
-}
-
-async function saveInventory(inventory: TshirtInventory): Promise<void> {
-  const redis = getRedis();
-  if (redis) {
-    await writeRedisInventory(redis, inventory);
-    return;
-  }
-
-  if (canUseFileStorage()) {
-    await writeFileInventory(inventory);
-    return;
-  }
-
-  throw new Error(
-    "Inventory storage is not available. Connect Upstash Redis to this Vercel project and redeploy."
-  );
-}
-
-export async function syncInventoryFromProducts(): Promise<TshirtInventory> {
-  const inventory = buildInitialInventoryFromProducts();
-  await saveInventory(inventory);
-  return inventory;
+  return { inventory: buildInitialInventoryFromProducts(), source: "catalog" };
 }
 
 export async function getTshirtInventory(): Promise<TshirtInventory> {
+  const { inventory } = await loadInventory();
+  return inventory;
+}
+
+export async function getInventoryWithMeta(): Promise<{
+  inventory: TshirtInventory;
+  source: "redis" | "file" | "catalog";
+}> {
   return loadInventory();
+}
+
+export async function syncInventoryFromProducts(): Promise<TshirtInventory> {
+  const catalog = buildInitialInventoryFromProducts();
+  const redis = getRedis();
+
+  if (redis) {
+    for (const [productId, sizes] of Object.entries(catalog)) {
+      for (const size of SIZES) {
+        await redis.set(skuKey(productId, size), sizes[size]);
+      }
+    }
+    await redis.del(LEGACY_INVENTORY_KEY);
+    return catalog;
+  }
+
+  if (canUseFileStorage()) {
+    await writeFileInventory(catalog);
+  }
+
+  return catalog;
 }
 
 export async function reserveTshirtStock(
   productId: string,
   size: ShirtSize,
   quantity: number
-): Promise<boolean> {
-  if (quantity <= 0) return false;
+): Promise<ReserveResult> {
+  if (quantity <= 0) {
+    return { ok: false, reason: "insufficient", message: "Invalid quantity" };
+  }
+
+  const redis = getRedis();
+  if (!redis) {
+    if (canUseFileStorage()) {
+      const inventory = await readFileInventory();
+      const available = inventory[productId]?.[size] ?? 0;
+      if (available < quantity) {
+        return { ok: false, reason: "insufficient", message: "Not enough stock" };
+      }
+      inventory[productId][size] = available - quantity;
+      await writeFileInventory(inventory);
+      return { ok: true };
+    }
+    return {
+      ok: false,
+      reason: "storage",
+      message: "Inventory storage is not available. Connect Redis in Vercel and redeploy.",
+    };
+  }
 
   try {
-    const inventory = await loadInventory();
-    const available = inventory[productId]?.[size] ?? 0;
-    if (available < quantity) return false;
+    await migrateLegacyBlob(redis);
+    await ensureSkuStock(redis, productId, size);
+    const key = skuKey(productId, size);
+    const remaining = await redis.decrby(key, quantity);
 
-    inventory[productId][size] = available - quantity;
-    await saveInventory(inventory);
-    return true;
+    if (remaining < 0) {
+      await redis.incrby(key, quantity);
+      return { ok: false, reason: "insufficient", message: "Not enough stock" };
+    }
+
+    return { ok: true };
   } catch (error) {
     console.error("reserveTshirtStock error:", error);
-    return false;
+    return {
+      ok: false,
+      reason: "storage",
+      message: error instanceof Error ? error.message : "Could not update inventory",
+    };
   }
 }
 
@@ -147,13 +224,21 @@ export async function releaseTshirtStock(
 ): Promise<void> {
   if (quantity <= 0) return;
 
-  try {
-    const inventory = await loadInventory();
-    inventory[productId][size] = (inventory[productId]?.[size] ?? 0) + quantity;
-    await saveInventory(inventory);
-  } catch (error) {
-    console.error("releaseTshirtStock error:", error);
+  const redis = getRedis();
+  if (redis) {
+    try {
+      await redis.incrby(skuKey(productId, size), quantity);
+      return;
+    } catch (error) {
+      console.error("releaseTshirtStock redis error:", error);
+    }
   }
+
+  if (!canUseFileStorage()) return;
+
+  const inventory = await readFileInventory();
+  inventory[productId][size] = (inventory[productId]?.[size] ?? 0) + quantity;
+  await writeFileInventory(inventory);
 }
 
 export async function saveReservation(sessionId: string, items: StockReservation[]): Promise<void> {
@@ -226,7 +311,6 @@ export function decodeReservations(raw: string | undefined | null): StockReserva
     .filter((r) => r.productId && r.size && r.quantity > 0);
 }
 
-/** Client-safe fallback when /api/inventory is unavailable */
 export function catalogInventoryForClient(): TshirtInventory {
   return buildInitialInventoryFromProducts();
 }
