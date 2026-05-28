@@ -43,6 +43,15 @@ Stock is stored in **Vercel KV / Upstash Redis** (not in the browser). This prev
 
 Local dev without Redis uses `data/tshirt-inventory.json` (created automatically).
 
+To reset live stock to match `src/config/products.ts` after testing:
+
+```bash
+curl -X POST https://YOUR-DOMAIN/api/inventory/sync \
+  -H "x-inventory-secret: YOUR_INVENTORY_SYNC_SECRET"
+```
+
+Set `INVENTORY_SYNC_SECRET` in Vercel first. A new deploy also seeds Redis automatically if no inventory blob exists yet.
+
 ## Webhooks (required for inventory)
 
 When a customer abandons Checkout, reserved stock is put back:

@@ -1,4 +1,4 @@
-import { kv } from "@vercel/kv";
+import { Redis } from "@upstash/redis";
 import { promises as fs } from "fs";
 import path from "path";
 import { PRODUCTS } from "@/config/products";
@@ -9,13 +9,13 @@ export type StockReservation = { productId: string; size: ShirtSize; quantity: n
 
 const SIZES: ShirtSize[] = ["S", "M", "L", "XL"];
 const DATA_FILE = path.join(process.cwd(), "data", "tshirt-inventory.json");
+const INVENTORY_KEY = "tshirt-inventory:v1";
 
-function useKv(): boolean {
-  return Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
-}
-
-function inventoryKey(productId: string, size: ShirtSize): string {
-  return `inv:${productId}:${size}`;
+function getRedis(): Redis | null {
+  const url = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return null;
+  return new Redis({ url, token });
 }
 
 function reservationKey(sessionId: string): string {
@@ -39,12 +39,6 @@ export function buildInitialInventoryFromProducts(): TshirtInventory {
   return inventory;
 }
 
-function initialStockFor(productId: string, size: ShirtSize): number {
-  const product = PRODUCTS.find((p) => p.id === productId);
-  const entry = product?.sizes?.find((s) => s.label === size);
-  return entry?.stock ?? 0;
-}
-
 async function readFileInventory(): Promise<TshirtInventory> {
   try {
     const raw = await fs.readFile(DATA_FILE, "utf-8");
@@ -61,30 +55,52 @@ async function writeFileInventory(inventory: TshirtInventory): Promise<void> {
   await fs.writeFile(DATA_FILE, JSON.stringify(inventory, null, 2));
 }
 
-async function ensureKvStock(productId: string, size: ShirtSize): Promise<void> {
-  const key = inventoryKey(productId, size);
-  const current = await kv.get<number>(key);
-  if (current === null) {
-    await kv.set(key, initialStockFor(productId, size));
+async function readRedisInventory(redis: Redis): Promise<TshirtInventory | null> {
+  return (await redis.get<TshirtInventory>(INVENTORY_KEY)) ?? null;
+}
+
+async function writeRedisInventory(redis: Redis, inventory: TshirtInventory): Promise<void> {
+  await redis.set(INVENTORY_KEY, inventory);
+}
+
+async function loadInventory(): Promise<TshirtInventory> {
+  const redis = getRedis();
+  if (redis) {
+    try {
+      const stored = await readRedisInventory(redis);
+      if (stored) return stored;
+      const initial = buildInitialInventoryFromProducts();
+      await writeRedisInventory(redis, initial);
+      return initial;
+    } catch (error) {
+      console.error("Redis inventory read failed, using catalog:", error);
+      return buildInitialInventoryFromProducts();
+    }
   }
+  return readFileInventory();
+}
+
+async function saveInventory(inventory: TshirtInventory): Promise<void> {
+  const redis = getRedis();
+  if (redis) {
+    try {
+      await writeRedisInventory(redis, inventory);
+      return;
+    } catch (error) {
+      console.error("Redis inventory write failed, using file:", error);
+    }
+  }
+  await writeFileInventory(inventory);
+}
+
+export async function syncInventoryFromProducts(): Promise<TshirtInventory> {
+  const inventory = buildInitialInventoryFromProducts();
+  await saveInventory(inventory);
+  return inventory;
 }
 
 export async function getTshirtInventory(): Promise<TshirtInventory> {
-  if (useKv()) {
-    const inventory: TshirtInventory = {};
-    for (const product of PRODUCTS) {
-      if (product.type !== "tshirt") continue;
-      const sizeMap: Record<ShirtSize, number> = { S: 0, M: 0, L: 0, XL: 0 };
-      for (const size of SIZES) {
-        await ensureKvStock(product.id, size);
-        sizeMap[size] = (await kv.get<number>(inventoryKey(product.id, size))) ?? 0;
-      }
-      inventory[product.id] = sizeMap;
-    }
-    return inventory;
-  }
-
-  return readFileInventory();
+  return loadInventory();
 }
 
 export async function reserveTshirtStock(
@@ -94,22 +110,12 @@ export async function reserveTshirtStock(
 ): Promise<boolean> {
   if (quantity <= 0) return false;
 
-  if (useKv()) {
-    const key = inventoryKey(productId, size);
-    await ensureKvStock(productId, size);
-    const remaining = await kv.decrby(key, quantity);
-    if (remaining < 0) {
-      await kv.incrby(key, quantity);
-      return false;
-    }
-    return true;
-  }
-
-  const inventory = await readFileInventory();
+  const inventory = await loadInventory();
   const available = inventory[productId]?.[size] ?? 0;
   if (available < quantity) return false;
+
   inventory[productId][size] = available - quantity;
-  await writeFileInventory(inventory);
+  await saveInventory(inventory);
   return true;
 }
 
@@ -120,40 +126,53 @@ export async function releaseTshirtStock(
 ): Promise<void> {
   if (quantity <= 0) return;
 
-  if (useKv()) {
-    const key = inventoryKey(productId, size);
-    await ensureKvStock(productId, size);
-    await kv.incrby(key, quantity);
-    return;
-  }
-
-  const inventory = await readFileInventory();
+  const inventory = await loadInventory();
   inventory[productId][size] = (inventory[productId]?.[size] ?? 0) + quantity;
-  await writeFileInventory(inventory);
+  await saveInventory(inventory);
 }
 
 export async function saveReservation(sessionId: string, items: StockReservation[]): Promise<void> {
-  if (!useKv()) return;
-  await kv.set(reservationKey(sessionId), items, { ex: 60 * 60 * 24 });
+  const redis = getRedis();
+  if (!redis || items.length === 0) return;
+  try {
+    await redis.set(reservationKey(sessionId), items, { ex: 60 * 60 * 24 });
+  } catch (error) {
+    console.error("Failed to save reservation:", error);
+  }
 }
 
 export async function loadReservation(sessionId: string): Promise<StockReservation[] | null> {
-  if (!useKv()) return null;
-  return (await kv.get<StockReservation[]>(reservationKey(sessionId))) ?? null;
+  const redis = getRedis();
+  if (!redis) return null;
+  try {
+    return (await redis.get<StockReservation[]>(reservationKey(sessionId))) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function clearReservation(sessionId: string): Promise<void> {
-  if (!useKv()) return;
-  await kv.del(reservationKey(sessionId));
+  const redis = getRedis();
+  if (!redis) return;
+  try {
+    await redis.del(reservationKey(sessionId));
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function markEventProcessed(sessionId: string, event: string): Promise<boolean> {
-  if (!useKv()) return false;
-  const key = processedKey(sessionId, event);
-  const existing = await kv.get(key);
-  if (existing) return true;
-  await kv.set(key, 1, { ex: 60 * 60 * 24 * 30 });
-  return false;
+  const redis = getRedis();
+  if (!redis) return false;
+  try {
+    const key = processedKey(sessionId, event);
+    const existing = await redis.get(key);
+    if (existing) return true;
+    await redis.set(key, 1, { ex: 60 * 60 * 24 * 30 });
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 export async function releaseReservations(items: StockReservation[]): Promise<void> {
@@ -180,4 +199,9 @@ export function decodeReservations(raw: string | undefined | null): StockReserva
       };
     })
     .filter((r) => r.productId && r.size && r.quantity > 0);
+}
+
+/** Client-safe fallback when /api/inventory is unavailable */
+export function catalogInventoryForClient(): TshirtInventory {
+  return buildInitialInventoryFromProducts();
 }

@@ -68,11 +68,28 @@ function availableStock(
   return Math.max(0, onHand - cartQtyForSize(cart, productId, size));
 }
 
+function catalogInventoryFallback(): InventoryMap {
+  const inventory: InventoryMap = {};
+  for (const product of PRODUCTS) {
+    if (product.type !== "tshirt" || !product.sizes) continue;
+    const sizeMap: Record<ShirtSize, number> = { S: 0, M: 0, L: 0, XL: 0 };
+    for (const size of product.sizes) {
+      sizeMap[size.label] = size.stock;
+    }
+    inventory[product.id] = sizeMap;
+  }
+  return inventory;
+}
+
 async function fetchInventory(): Promise<InventoryMap> {
-  const response = await fetch("/api/inventory", { cache: "no-store" });
-  if (!response.ok) throw new Error("Failed to load inventory");
-  const data = await response.json();
-  return data.inventory as InventoryMap;
+  try {
+    const response = await fetch("/api/inventory", { cache: "no-store" });
+    const data = await response.json();
+    if (data?.inventory) return data.inventory as InventoryMap;
+  } catch (error) {
+    console.error("Inventory fetch error:", error);
+  }
+  return catalogInventoryFallback();
 }
 
 function generateInitialItems(windowWidth: number, windowHeight: number): FloatingItem[] {
@@ -138,12 +155,8 @@ export default function MerchStore() {
   }, []);
 
   const refreshInventory = useCallback(async () => {
-    try {
-      const next = await fetchInventory();
-      setInventory(next);
-    } catch (error) {
-      console.error("Inventory refresh error:", error);
-    }
+    const next = await fetchInventory();
+    setInventory(next);
   }, []);
 
   useEffect(() => {
