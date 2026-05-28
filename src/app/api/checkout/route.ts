@@ -1,13 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { PRODUCT_BY_ID } from "@/config/products";
+import { getStripeSecretKey } from "@/lib/stripe-keys";
+
+function absoluteImageUrl(origin: string, imagePath: string): string {
+  if (imagePath.startsWith("http://") || imagePath.startsWith("https://")) {
+    return imagePath;
+  }
+  return `${origin}${imagePath.startsWith("/") ? "" : "/"}${imagePath}`;
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const secretKey = process.env.STRIPE_SECRET_KEY;
+    const secretKey = getStripeSecretKey();
     if (!secretKey) {
       return NextResponse.json(
-        { error: "Missing STRIPE_SECRET_KEY environment variable" },
+        {
+          error:
+            "Stripe secret key not found. Set STRIPE_SECRET_KEY or TNB_MERCH (sk_live_...) in Vercel Environment Variables.",
+        },
         { status: 500 }
       );
     }
@@ -15,6 +26,8 @@ export async function POST(req: NextRequest) {
     const stripe = new Stripe(secretKey, {
       apiVersion: "2026-04-22.dahlia",
     });
+
+    const origin = req.headers.get("origin") ?? req.nextUrl.origin;
 
     const { items } = await req.json();
 
@@ -57,7 +70,7 @@ export async function POST(req: NextRequest) {
           currency: "gbp",
           product_data: {
             name: lineItemName,
-            images: [product.image],
+            images: [absoluteImageUrl(origin, product.image)],
             metadata: {
               productId: product.id,
               productType: product.type,
@@ -73,10 +86,6 @@ export async function POST(req: NextRequest) {
     const hasTshirt = items.some((item) => PRODUCT_BY_ID[item?.productId]?.type === "tshirt");
     const hasCd = items.some((item) => item?.productId === "cd-album");
 
-    // Shipping rules:
-    // - T-shirts: £4.99 domestic / £10 international
-    // - CDs: £2.50 domestic / £7 international
-    // - Pendant-only: £2.50 domestic / £10 international
     const domesticShippingAmount = hasTshirt ? 499 : 250;
     const internationalShippingAmount = hasTshirt ? 1000 : hasCd ? 700 : 1000;
 
@@ -84,8 +93,8 @@ export async function POST(req: NextRequest) {
       payment_method_types: ["card"],
       line_items: lineItems,
       mode: "payment",
-      success_url: `${req.headers.get("origin")}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${req.headers.get("origin")}/`,
+      success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/`,
       shipping_address_collection: {
         allowed_countries: ["US", "CA", "GB", "AU", "DE", "FR", "IT", "ES", "NL"],
       },
@@ -115,12 +124,11 @@ export async function POST(req: NextRequest) {
       ],
     });
 
-    return NextResponse.json({ sessionId: session.id });
+    return NextResponse.json({ sessionId: session.id, url: session.url });
   } catch (error) {
     console.error("Stripe error:", error);
-    return NextResponse.json(
-      { error: "Failed to create checkout session" },
-      { status: 500 }
-    );
+    const message =
+      error instanceof Error ? error.message : "Failed to create checkout session";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

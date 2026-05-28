@@ -1,11 +1,6 @@
 "use client";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { loadStripe } from "@stripe/stripe-js";
 import { PRODUCTS, Product } from "@/config/products";
-
-const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-  ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
-  : null;
 
 function sr(seed: number): number {
   const x = Math.sin(seed + 1) * 10000;
@@ -272,7 +267,7 @@ export default function MerchStore() {
   const cartTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   const handleCheckout = async () => {
-    if (!stripePromise || cart.length === 0) return;
+    if (cart.length === 0) return;
     setIsCheckingOut(true);
     try {
       const response = await fetch("/api/checkout", {
@@ -287,14 +282,18 @@ export default function MerchStore() {
         }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? "Checkout failed");
-      const stripe = await stripePromise;
-      if (stripe) {
-        await (stripe as any).redirectToCheckout({ sessionId: data.sessionId });
+      if (!response.ok) {
+        throw new Error(data?.error ?? "Checkout failed");
       }
+      if (data.url) {
+        window.location.href = data.url;
+        return;
+      }
+      throw new Error("No checkout URL returned from server");
     } catch (error) {
       console.error("Checkout error:", error);
-      alert("Checkout failed. Please try again.");
+      const message = error instanceof Error ? error.message : "Checkout failed. Please try again.";
+      alert(message);
     } finally {
       setIsCheckingOut(false);
     }

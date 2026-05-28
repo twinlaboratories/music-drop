@@ -13,8 +13,10 @@
 
 | Variable | Where | Description |
 |----------|-------|-------------|
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Frontend | Starts with `pk_test_` (test) or `pk_live_` (production) |
-| `STRIPE_SECRET_KEY` | Backend | Starts with `sk_test_` (test) or `sk_live_` (production) |
+| `STRIPE_SECRET_KEY` | Backend (required) | Starts with `sk_test_` or `sk_live_` |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Optional | Only needed for Stripe.js embeds; hosted Checkout uses the secret key + redirect URL |
+
+**Vercel:** Set `STRIPE_SECRET_KEY` to your `sk_live_...` value (or use `TNB_MERCH` with the same value). Redeploy after changing env vars.
 
 ## Test Mode
 
