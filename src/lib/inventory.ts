@@ -7,7 +7,6 @@ export type ShirtSize = "S" | "M" | "L" | "XL";
 export type TshirtInventory = Record<string, Record<ShirtSize, number>>;
 export type StockReservation = { productId: string; size: ShirtSize; quantity: number };
 
-const SIZES: ShirtSize[] = ["S", "M", "L", "XL"];
 const DATA_FILE = path.join(process.cwd(), "data", "tshirt-inventory.json");
 const INVENTORY_KEY = "tshirt-inventory:v1";
 
@@ -16,6 +15,11 @@ function getRedis(): Redis | null {
   const token = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) return null;
   return new Redis({ url, token });
+}
+
+/** Vercel serverless has a read-only filesystem; only use files in local dev */
+function canUseFileStorage(): boolean {
+  return process.env.NODE_ENV === "development" && !process.env.VERCEL;
 }
 
 function reservationKey(sessionId: string): string {
@@ -45,12 +49,15 @@ async function readFileInventory(): Promise<TshirtInventory> {
     return JSON.parse(raw) as TshirtInventory;
   } catch {
     const initial = buildInitialInventoryFromProducts();
-    await writeFileInventory(initial);
+    if (canUseFileStorage()) {
+      await writeFileInventory(initial);
+    }
     return initial;
   }
 }
 
 async function writeFileInventory(inventory: TshirtInventory): Promise<void> {
+  if (!canUseFileStorage()) return;
   await fs.mkdir(path.dirname(DATA_FILE), { recursive: true });
   await fs.writeFile(DATA_FILE, JSON.stringify(inventory, null, 2));
 }
@@ -77,20 +84,29 @@ async function loadInventory(): Promise<TshirtInventory> {
       return buildInitialInventoryFromProducts();
     }
   }
-  return readFileInventory();
+
+  if (canUseFileStorage()) {
+    return readFileInventory();
+  }
+
+  return buildInitialInventoryFromProducts();
 }
 
 async function saveInventory(inventory: TshirtInventory): Promise<void> {
   const redis = getRedis();
   if (redis) {
-    try {
-      await writeRedisInventory(redis, inventory);
-      return;
-    } catch (error) {
-      console.error("Redis inventory write failed, using file:", error);
-    }
+    await writeRedisInventory(redis, inventory);
+    return;
   }
-  await writeFileInventory(inventory);
+
+  if (canUseFileStorage()) {
+    await writeFileInventory(inventory);
+    return;
+  }
+
+  throw new Error(
+    "Inventory storage is not available. Connect Upstash Redis to this Vercel project and redeploy."
+  );
 }
 
 export async function syncInventoryFromProducts(): Promise<TshirtInventory> {
@@ -110,13 +126,18 @@ export async function reserveTshirtStock(
 ): Promise<boolean> {
   if (quantity <= 0) return false;
 
-  const inventory = await loadInventory();
-  const available = inventory[productId]?.[size] ?? 0;
-  if (available < quantity) return false;
+  try {
+    const inventory = await loadInventory();
+    const available = inventory[productId]?.[size] ?? 0;
+    if (available < quantity) return false;
 
-  inventory[productId][size] = available - quantity;
-  await saveInventory(inventory);
-  return true;
+    inventory[productId][size] = available - quantity;
+    await saveInventory(inventory);
+    return true;
+  } catch (error) {
+    console.error("reserveTshirtStock error:", error);
+    return false;
+  }
 }
 
 export async function releaseTshirtStock(
@@ -126,9 +147,13 @@ export async function releaseTshirtStock(
 ): Promise<void> {
   if (quantity <= 0) return;
 
-  const inventory = await loadInventory();
-  inventory[productId][size] = (inventory[productId]?.[size] ?? 0) + quantity;
-  await saveInventory(inventory);
+  try {
+    const inventory = await loadInventory();
+    inventory[productId][size] = (inventory[productId]?.[size] ?? 0) + quantity;
+    await saveInventory(inventory);
+  } catch (error) {
+    console.error("releaseTshirtStock error:", error);
+  }
 }
 
 export async function saveReservation(sessionId: string, items: StockReservation[]): Promise<void> {
