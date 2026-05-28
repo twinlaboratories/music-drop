@@ -1,22 +1,36 @@
 "use client";
 import { useState, useCallback, useRef, useEffect } from "react";
 import { loadStripe } from "@stripe/stripe-js";
-import { PRODUCTS, TSHIRT_SIZE, BULK_SIZE, Product, ProductType } from "@/config/products";
+import { PRODUCTS, Product } from "@/config/products";
 
-// Initialize Stripe (publishable key will be loaded from env)
 const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
   ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
   : null;
 
-// Seeded PRNG — stable fractional value 0–1 from any integer seed
 function sr(seed: number): number {
   const x = Math.sin(seed + 1) * 10000;
   return x - Math.floor(x);
 }
 
+const getSizes = (width: number) => {
+  const isMobile = width < 768;
+  const unified = isMobile ? 180 : 280;
+  return {
+    TSHIRT_SIZE: unified,
+    BULK_SIZE: unified,
+    isMobile,
+  };
+};
+
+type ShirtSize = "S" | "M" | "L" | "XL";
+
 interface CartItem {
-  product: Product;
+  productId: string;
+  name: string;
+  image: string;
+  price: number;
   quantity: number;
+  selectedSize?: ShirtSize;
 }
 
 interface FloatingItem {
@@ -31,303 +45,233 @@ interface FloatingItem {
   duration: number;
   z: number;
   dragging: boolean;
-  quantity: number;
 }
 
 type DragState = {
   id: string;
-  startMouseX: number;
-  startMouseY: number;
+  startX: number;
+  startY: number;
   startItemX: number;
   startItemY: number;
-  promoted: boolean;
 };
 
-// Generate stable initial items
-function generateInitialItems(): FloatingItem[] {
-  const W = 1200;
-  const H = 900;
-  
+type InventoryMap = Record<string, Record<ShirtSize, number>>;
+
+function buildInitialInventory(): InventoryMap {
+  const inventory: InventoryMap = {};
+  for (const product of PRODUCTS) {
+    if (product.type !== "tshirt" || !product.sizes) continue;
+    const sizeMap = { S: 0, M: 0, L: 0, XL: 0 };
+    for (const size of product.sizes) {
+      sizeMap[size.label] = size.stock;
+    }
+    inventory[product.id] = sizeMap;
+  }
+  return inventory;
+}
+
+function generateInitialItems(windowWidth: number, windowHeight: number): FloatingItem[] {
+  const { TSHIRT_SIZE, BULK_SIZE } = getSizes(windowWidth);
   return PRODUCTS.map((product, i) => {
     const isBulk = product.type === "cd" || product.type === "necklace";
-    const width = isBulk ? BULK_SIZE : TSHIRT_SIZE;
-    
-    const x = sr(i * 7 + 1) * W * 0.85 - 20;
-    const y = sr(i * 13 + 2) * H * 1.4 - H * 0.2;
-    
+    const cardWidth = isBulk ? BULK_SIZE : TSHIRT_SIZE;
+    const approxCardHeight = cardWidth + 38; // image + title/price area + frame
+    const safeTop = windowWidth < 768 ? 120 : 95;
+    const safeBottom = windowWidth < 768 ? 16 : 24;
+    const safeSide = windowWidth < 768 ? 8 : 18;
+    const minX = safeSide;
+    const maxX = Math.max(minX, windowWidth - cardWidth - safeSide);
+    const minY = safeTop;
+    const maxY = Math.max(minY, windowHeight - approxCardHeight - safeBottom);
+    const x = minX + sr(i * 7 + 1) * (maxX - minX || 1);
+    const y = minY + sr(i * 13 + 2) * (maxY - minY || 1);
     return {
       id: product.id,
       product,
       x,
       y,
-      rotation: (sr(i * 3 + 3) - 0.5) * 30,
-      width,
+      rotation: (sr(i * 3 + 3) - 0.5) * 16,
+      width: cardWidth,
       floatVariant: i % 3,
       delay: sr(i * 5 + 5) * 10,
       duration: sr(i * 17 + 6) * 6 + 10,
       z: 10 + i,
       dragging: false,
-      quantity: 1,
     };
   });
 }
 
-// Sample product images for demo (in production, these come from product data)
-const getProductImages = (product: Product): string[] => {
-  // For demo, return multiple placeholder images
-  // In production, this would be actual product images from your data
-  return [
-    product.image,
-    product.image,
-    product.image, // Duplicate for demo purposes
-  ];
-};
-
 export default function MerchStore() {
-  const [items, setItems] = useState<FloatingItem[]>(generateInitialItems);
+  const [windowSize, setWindowSize] = useState({ width: 1200, height: 800 });
+  const [items, setItems] = useState<FloatingItem[]>([]);
   const [mounted, setMounted] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [inventory, setInventory] = useState<InventoryMap>(buildInitialInventory);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [selectedSize, setSelectedSize] = useState<ShirtSize | null>(null);
   const [modalQuantity, setModalQuantity] = useState(1);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+
   const drag = useRef<DragState | null>(null);
   const topZ = useRef(100);
 
-  // Mark as mounted and adjust positions
   useEffect(() => {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    setWindowSize({ width, height });
+    setItems(generateInitialItems(width, height));
     setMounted(true);
-    const W = window.innerWidth;
-    const H = window.innerHeight;
+
+    const handleResize = () => {
+      const nextWidth = window.innerWidth;
+      const nextHeight = window.innerHeight;
+      setWindowSize({ width: nextWidth, height: nextHeight });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const startDrag = useCallback((clientX: number, clientY: number, id: string) => {
+    const item = items.find((it) => it.id === id);
+    if (!item) return;
+
+    drag.current = {
+      id,
+      startX: clientX,
+      startY: clientY,
+      startItemX: item.x,
+      startItemY: item.y,
+    };
+
+    topZ.current += 1;
     setItems((prev) =>
-      prev.map((item, i) => ({
-        ...item,
-        x: sr(i * 7 + 1) * W * 0.85 - 20,
-        y: sr(i * 13 + 2) * H * 1.4 - H * 0.2,
-      }))
+      prev.map((it) => (it.id === id ? { ...it, dragging: true, z: topZ.current } : it))
     );
-  }, []);
-
-  const onMouseDown = useCallback((e: React.MouseEvent, id: string) => {
-    // Ignore clicks on buttons or interactive elements
-    const target = e.target as HTMLElement;
-    if (
-      target.tagName === "BUTTON" ||
-      target.closest("button") ||
-      target.tagName === "INPUT" ||
-      target.closest("[data-no-drag]")
-    ) {
-      return;
-    }
-
-    e.preventDefault();
-    topZ.current += 1;
-    setItems((prev) => {
-      const item = prev.find((it) => it.id === id);
-      if (!item) return prev;
-      drag.current = {
-        id,
-        startMouseX: e.clientX,
-        startMouseY: e.clientY,
-        startItemX: item.x,
-        startItemY: item.y,
-        promoted: false,
-      };
-      return prev.map((it) =>
-        it.id === id ? { ...it, dragging: true, z: topZ.current } : it
-      );
-    });
-  }, []);
-
-  const onTouchStart = useCallback((e: React.TouchEvent, id: string) => {
-    // Ignore touches on buttons or interactive elements
-    const target = e.target as HTMLElement;
-    if (
-      target.tagName === "BUTTON" ||
-      target.closest("button") ||
-      target.tagName === "INPUT" ||
-      target.closest("[data-no-drag]")
-    ) {
-      return;
-    }
-
-    e.preventDefault();
-    const touch = e.touches[0];
-    topZ.current += 1;
-    setItems((prev) => {
-      const item = prev.find((it) => it.id === id);
-      if (!item) return prev;
-      drag.current = {
-        id,
-        startMouseX: touch.clientX,
-        startMouseY: touch.clientY,
-        startItemX: item.x,
-        startItemY: item.y,
-        promoted: false,
-      };
-      return prev.map((it) =>
-        it.id === id ? { ...it, dragging: true, z: topZ.current } : it
-      );
-    });
-  }, []);
+  }, [items]);
 
   useEffect(() => {
-    const onMove = (e: MouseEvent) => {
+    const onMouseMove = (e: MouseEvent) => {
       if (!drag.current) return;
-      const { id, startMouseX, startMouseY, startItemX, startItemY } = drag.current;
-      const dx = e.clientX - startMouseX;
-      const dy = e.clientY - startMouseY;
-      if (!drag.current.promoted && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
-        drag.current.promoted = true;
-      }
+      const { id, startX, startY, startItemX, startItemY } = drag.current;
       setItems((prev) =>
         prev.map((it) =>
-          it.id === id ? { ...it, x: startItemX + dx, y: startItemY + dy } : it
+          it.id === id ? { ...it, x: startItemX + (e.clientX - startX), y: startItemY + (e.clientY - startY) } : it
         )
       );
     };
-
-    const onUp = () => {
+    const onMouseUp = () => {
+      if (!drag.current) return;
       drag.current = null;
       setItems((prev) => prev.map((it) => ({ ...it, dragging: false })));
     };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
 
+  useEffect(() => {
     const onTouchMove = (e: TouchEvent) => {
       if (!drag.current) return;
       e.preventDefault();
       const touch = e.touches[0];
-      const { id, startMouseX, startMouseY, startItemX, startItemY } = drag.current;
-      const dx = touch.clientX - startMouseX;
-      const dy = touch.clientY - startMouseY;
-      if (!drag.current.promoted && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
-        drag.current.promoted = true;
-      }
+      const { id, startX, startY, startItemX, startItemY } = drag.current;
       setItems((prev) =>
         prev.map((it) =>
-          it.id === id ? { ...it, x: startItemX + dx, y: startItemY + dy } : it
+          it.id === id
+            ? { ...it, x: startItemX + (touch.clientX - startX), y: startItemY + (touch.clientY - startY) }
+            : it
         )
       );
     };
-
     const onTouchEnd = () => {
+      if (!drag.current) return;
       drag.current = null;
       setItems((prev) => prev.map((it) => ({ ...it, dragging: false })));
     };
-
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
     window.addEventListener("touchmove", onTouchMove, { passive: false });
     window.addEventListener("touchend", onTouchEnd);
+    window.addEventListener("touchcancel", onTouchEnd);
     return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
       window.removeEventListener("touchmove", onTouchMove);
       window.removeEventListener("touchend", onTouchEnd);
+      window.removeEventListener("touchcancel", onTouchEnd);
     };
   }, []);
 
-  const updateQuantity = (id: string, delta: number) => {
-    setItems((prev) =>
-      prev.map((it) =>
-        it.id === id
-          ? { ...it, quantity: Math.max(1, Math.min(10, it.quantity + delta)) }
-          : it
-      )
-    );
-  };
-
   const openProductModal = (product: Product) => {
     setSelectedProduct(product);
+    setSelectedSize(null);
     setModalQuantity(1);
     setCurrentImageIndex(0);
   };
 
-  const closeModal = () => {
-    setSelectedProduct(null);
-  };
+  const closeModal = () => setSelectedProduct(null);
 
   const addToCartFromModal = () => {
     if (!selectedProduct) return;
 
-    setCart((prev) => {
-      const existing = prev.find((ci) => ci.product.id === selectedProduct.id);
-      if (existing) {
-        return prev.map((ci) =>
-          ci.product.id === selectedProduct.id
-            ? { ...ci, quantity: ci.quantity + modalQuantity }
-            : ci
-        );
-      }
-      return [...prev, { product: selectedProduct, quantity: modalQuantity }];
-    });
-
-    // Remove t-shirts from store immediately (only one of each)
-    if (selectedProduct.type === "tshirt") {
-      setItems((prev) => prev.filter((it) => it.id !== selectedProduct.id));
+    const isShirt = selectedProduct.type === "tshirt";
+    if (isShirt) {
+      if (!selectedSize) return;
+      const available = inventory[selectedProduct.id]?.[selectedSize] ?? 0;
+      if (available < modalQuantity) return;
+      setInventory((prev) => ({
+        ...prev,
+        [selectedProduct.id]: {
+          ...prev[selectedProduct.id],
+          [selectedSize]: prev[selectedProduct.id][selectedSize] - modalQuantity,
+        },
+      }));
     }
+
+    const cartKey = `${selectedProduct.id}:${selectedSize ?? "NA"}`;
+    setCart((prev) => {
+      const existing = prev.find((item) => `${item.productId}:${item.selectedSize ?? "NA"}` === cartKey);
+      if (!existing) {
+        return [
+          ...prev,
+          {
+            productId: selectedProduct.id,
+            name: selectedProduct.name,
+            image: selectedProduct.image,
+            price: selectedProduct.price,
+            quantity: modalQuantity,
+            selectedSize: selectedSize ?? undefined,
+          },
+        ];
+      }
+      return prev.map((item) =>
+        `${item.productId}:${item.selectedSize ?? "NA"}` === cartKey
+          ? { ...item, quantity: item.quantity + modalQuantity }
+          : item
+      );
+    });
 
     closeModal();
   };
 
-  const addToCart = (item: FloatingItem) => {
-    // Add to cart
-    setCart((prev) => {
-      const existing = prev.find((ci) => ci.product.id === item.product.id);
-      if (existing) {
-        return prev.map((ci) =>
-          ci.product.id === item.product.id
-            ? { ...ci, quantity: ci.quantity + item.quantity }
-            : ci
-        );
-      }
-      return [...prev, { product: item.product, quantity: item.quantity }];
-    });
-
-    // Remove t-shirts from store immediately (only one of each)
-    if (item.product.type === "tshirt") {
-      setItems((prev) => prev.filter((it) => it.id !== item.id));
+  const removeFromCart = (targetKey: string) => {
+    const removed = cart.find((item) => `${item.productId}:${item.selectedSize ?? "NA"}` === targetKey);
+    if (removed && removed.selectedSize) {
+      setInventory((prev) => ({
+        ...prev,
+        [removed.productId]: {
+          ...prev[removed.productId],
+          [removed.selectedSize]: (prev[removed.productId]?.[removed.selectedSize] ?? 0) + removed.quantity,
+        },
+      }));
     }
+    setCart((prev) => prev.filter((item) => `${item.productId}:${item.selectedSize ?? "NA"}` !== targetKey));
   };
 
-  const removeFromCart = (productId: string) => {
-    const removedItem = cart.find((ci) => ci.product.id === productId);
-    
-    setCart((prev) => prev.filter((ci) => ci.product.id !== productId));
-
-    // Add t-shirts back to store when removed from cart
-    if (removedItem && removedItem.product.type === "tshirt") {
-      const W = window.innerWidth;
-      const H = window.innerHeight;
-      const index = PRODUCTS.findIndex((p) => p.id === productId);
-      
-      setItems((prev) => {
-        // Check if already in items (shouldn't happen but safety check)
-        if (prev.some((it) => it.id === productId)) return prev;
-        
-        const newItem: FloatingItem = {
-          id: productId,
-          product: removedItem.product,
-          x: sr(index * 7 + 1) * W * 0.85 - 20,
-          y: sr(index * 13 + 2) * H * 1.4 - H * 0.2,
-          rotation: (sr(index * 3 + 3) - 0.5) * 30,
-          width: TSHIRT_SIZE,
-          floatVariant: index % 3,
-          delay: sr(index * 5 + 5) * 10,
-          duration: sr(index * 17 + 6) * 6 + 10,
-          z: topZ.current + 1,
-          dragging: false,
-          quantity: 1,
-        };
-        return [...prev, newItem];
-      });
-    }
-  };
-
-  const cartTotal = cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+  const cartTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   const handleCheckout = async () => {
     if (!stripePromise || cart.length === 0) return;
-    
     setIsCheckingOut(true);
     try {
       const response = await fetch("/api/checkout", {
@@ -335,23 +279,17 @@ export default function MerchStore() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           items: cart.map((item) => ({
-            price_data: {
-              currency: "usd",
-              product_data: {
-                name: item.product.name,
-                images: [item.product.image],
-              },
-              unit_amount: item.product.price,
-            },
+            productId: item.productId,
             quantity: item.quantity,
+            selectedSize: item.selectedSize ?? null,
           })),
         }),
       });
-
-      const { sessionId } = await response.json();
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error ?? "Checkout failed");
       const stripe = await stripePromise;
       if (stripe) {
-        await stripe.redirectToCheckout({ sessionId });
+        await stripe.redirectToCheckout({ sessionId: data.sessionId });
       }
     } catch (error) {
       console.error("Checkout error:", error);
@@ -363,38 +301,53 @@ export default function MerchStore() {
 
   if (!mounted) return null;
 
-  const modalImages = selectedProduct ? getProductImages(selectedProduct) : [];
-  const isBulkProduct = selectedProduct && (selectedProduct.type === "cd" || selectedProduct.type === "necklace");
+  const { isMobile } = getSizes(windowSize.width);
+  const modalImages = selectedProduct?.images?.length ? selectedProduct.images : selectedProduct ? [selectedProduct.image] : [];
+
+  const selectedSizeStock =
+    selectedProduct?.type === "tshirt" && selectedSize
+      ? inventory[selectedProduct.id]?.[selectedSize] ?? 0
+      : 999;
+  const quantityMax = Math.max(1, Math.min(10, selectedSizeStock));
 
   return (
     <>
-      {/* Cart summary */}
-      <div className="fixed top-4 right-4 z-50 bg-white/90 backdrop-blur-sm rounded-xl shadow-lg p-4 max-w-xs">
-        <h3 className="font-black text-lg lowercase mb-2 text-brand-pink">cart ({cart.length})</h3>
+      <div
+        className={`fixed z-50 bg-white/95 backdrop-blur-sm rounded-xl shadow-lg p-3 ${
+          isMobile ? "top-3 right-3 left-3 max-w-none" : "top-4 right-4 max-w-xs"
+        }`}
+      >
+        <h3 className="font-black text-base lowercase mb-1 text-brand-pink">cart ({cart.length})</h3>
         {cart.length === 0 ? (
-          <p className="text-sm text-gray-500 lowercase">drag items to browse • tap to view</p>
+          <p className="text-xs text-gray-500 lowercase">drag handle • tap image to view</p>
         ) : (
           <>
-            <div className="space-y-2 max-h-48 overflow-y-auto mb-3">
-              {cart.map((item) => (
-                <div key={item.product.id} className="flex justify-between items-center text-sm">
-                  <span className="truncate flex-1 lowercase">{item.product.name}</span>
-                  <span className="font-bold mx-2">x{item.quantity}</span>
-                  <button
-                    onClick={() => removeFromCart(item.product.id)}
-                    className="text-red-500 hover:text-red-700 px-2"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
+            <div className={`space-y-1 overflow-y-auto mb-2 ${isMobile ? "max-h-24" : "max-h-48"}`}>
+              {cart.map((item) => {
+                const key = `${item.productId}:${item.selectedSize ?? "NA"}`;
+                return (
+                  <div key={key} className="flex justify-between items-center text-xs">
+                    <span className="truncate flex-1 lowercase">
+                      {item.name}{item.selectedSize ? ` (${item.selectedSize})` : ""}
+                    </span>
+                    <span className="font-bold">({item.quantity})</span>
+                    <button
+                      onClick={() => removeFromCart(key)}
+                      className="text-red-500 hover:text-red-700 px-2 ml-1 text-base leading-none"
+                      aria-label="Remove item"
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-            <div className="border-t pt-2">
-              <p className="font-black text-lg">${(cartTotal / 100).toFixed(2)}</p>
+            <div className="border-t pt-1">
+              <p className="font-black text-base">£{(cartTotal / 100).toFixed(2)}</p>
               <button
                 onClick={handleCheckout}
                 disabled={isCheckingOut}
-                className="w-full mt-2 bg-brand-pink text-white font-black py-2 rounded-full hover:bg-pink-600 transition-colors disabled:opacity-50 lowercase"
+                className="w-full mt-1 bg-brand-pink text-white font-black py-1.5 rounded-full text-sm hover:bg-pink-600 transition-colors disabled:opacity-50 lowercase"
               >
                 {isCheckingOut ? "processing..." : "checkout"}
               </button>
@@ -403,103 +356,77 @@ export default function MerchStore() {
         )}
       </div>
 
-      {/* Floating products */}
-      <div
-        className="fixed inset-0 overflow-visible"
-        style={{ zIndex: 10, pointerEvents: "none" }}
-        aria-hidden="true"
-      >
-        {items.map((item) => {
-          const isBulk = item.product.type === "cd" || item.product.type === "necklace";
-          
-          return (
+      <div className="fixed inset-0 overflow-visible" style={{ zIndex: 10, pointerEvents: "none" }} aria-hidden="true">
+        {items.map((item) => (
+          <div
+            key={item.id}
+            className="absolute select-none"
+            style={{
+              left: item.x,
+              top: item.y,
+              width: item.width,
+              zIndex: item.z,
+              transform: `rotate(${item.rotation}deg)`,
+              cursor: item.dragging ? "grabbing" : "default",
+              transition: item.dragging ? "none" : "left 450ms cubic-bezier(0.22,1,0.36,1), top 450ms cubic-bezier(0.22,1,0.36,1)",
+              pointerEvents: "auto",
+            }}
+          >
             <div
-              key={item.id}
-              className="absolute select-none"
+              className={item.product.frameColor === "pink" ? "pink-frame" : "lime-frame"}
               style={{
-                left: item.x,
-                top: item.y,
-                width: item.width,
-                zIndex: item.z,
-                transform: `rotate(${item.rotation}deg)`,
-                cursor: item.dragging ? "grabbing" : "grab",
-                transition: item.dragging
-                  ? "none"
-                  : "left 700ms cubic-bezier(0.22, 1, 0.36, 1), top 700ms cubic-bezier(0.22, 1, 0.36, 1)",
-                pointerEvents: "auto",
-                touchAction: "none",
+                animationName: item.dragging ? "none" : `float-${item.floatVariant}`,
+                animationDuration: `${item.duration}s`,
+                animationDelay: `-${item.delay}s`,
               }}
-              onMouseDown={(e) => onMouseDown(e, item.id)}
-              onTouchStart={(e) => onTouchStart(e, item.id)}
             >
               <div
-                className={item.product.frameColor === "pink" ? "pink-frame" : "lime-frame"}
-                style={{
-                  animationName: item.dragging ? "none" : `float-${item.floatVariant}`,
-                  animationDuration: `${item.duration}s`,
-                  animationDelay: `-${item.delay}s`,
+                data-drag-handle
+                className="bg-black/80 text-white text-[10px] font-bold tracking-wide uppercase px-2 py-1 cursor-grab active:cursor-grabbing"
+                onMouseDown={(e) => startDrag(e.clientX, e.clientY, item.id)}
+                onTouchStart={(e) => {
+                  const touch = e.touches[0];
+                  startDrag(touch.clientX, touch.clientY, item.id);
                 }}
               >
-                {/* Product image - clickable to open modal */}
-                <div
-                  data-no-drag
-                  className="bg-gray-100 flex items-center justify-center overflow-hidden cursor-pointer hover:bg-gray-200 transition-colors"
-                  style={{
-                    width: "100%",
-                    aspectRatio: "1 / 1",
-                  }}
-                  onClick={() => openProductModal(item.product)}
-                >
-                  {/* Placeholder for product image */}
-                  <div className="text-center p-2">
-                    <div className="text-4xl mb-1">
-                      {item.product.type === "tshirt" && "👕"}
-                      {item.product.type === "cd" && "💿"}
-                      {item.product.type === "necklace" && "📿"}
-                    </div>
-                    <p className="text-xs font-bold lowercase leading-tight">{item.product.name}</p>
-                    <p className="text-sm font-black mt-1">${(item.product.price / 100).toFixed(2)}</p>
-                    {item.product.size && (
-                      <p className="text-xs text-gray-500 lowercase">size: {item.product.size}</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Quick add button */}
-                <button
-                  onClick={() => addToCart(item)}
-                  className="w-full bg-black text-white font-black py-2 text-sm lowercase hover:bg-gray-800 active:scale-95 transition-all"
-                >
-                  add to cart
-                </button>
+                drag
               </div>
+
+              <button
+                type="button"
+                onClick={() => openProductModal(item.product)}
+                className="w-full bg-gray-100 block"
+                aria-label={`View ${item.product.name}`}
+              >
+                <img src={item.product.image} alt={item.product.name} className="w-full aspect-square object-cover" />
+                <div className={`text-center ${isMobile ? "p-1" : "p-2"}`}>
+                  <p className={`font-bold lowercase leading-tight ${isMobile ? "text-[10px]" : "text-xs"}`}>{item.product.name}</p>
+                  <p className={`font-black mt-0.5 ${isMobile ? "text-xs" : "text-sm"}`}>£{(item.product.price / 100).toFixed(2)}</p>
+                </div>
+              </button>
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
 
-      {/* Product Detail Modal */}
       {selectedProduct && (
-        <div 
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+        <div
+          className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-sm"
           onClick={closeModal}
         >
-          <div 
-            className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
+          <div
+            className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-lg max-h-[85vh] sm:max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Image Gallery */}
             <div className="relative bg-gray-100 aspect-square">
-              {/* Main Image */}
-              <div className="w-full h-full flex items-center justify-center">
-                <div className="text-8xl">
-                  {selectedProduct.type === "tshirt" && "👕"}
-                  {selectedProduct.type === "cd" && "💿"}
-                  {selectedProduct.type === "necklace" && "📿"}
-                </div>
-              </div>
+              {modalImages.length > 0 && (
+                <img
+                  src={modalImages[currentImageIndex]}
+                  alt={`${selectedProduct.name} ${currentImageIndex + 1}`}
+                  className="w-full h-full object-cover"
+                />
+              )}
 
-              {/* Image Navigation */}
               {modalImages.length > 1 && (
                 <>
                   <button
@@ -514,22 +441,8 @@ export default function MerchStore() {
                   >
                     →
                   </button>
-                  {/* Image Indicators */}
-                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
-                    {modalImages.map((_, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => setCurrentImageIndex(idx)}
-                        className={`w-2 h-2 rounded-full transition-colors ${
-                          idx === currentImageIndex ? "bg-brand-pink" : "bg-gray-400"
-                        }`}
-                      />
-                    ))}
-                  </div>
                 </>
               )}
-
-              {/* Close button */}
               <button
                 onClick={closeModal}
                 className="absolute top-4 right-4 w-10 h-10 bg-white/90 rounded-full flex items-center justify-center shadow-lg hover:bg-white transition-colors font-bold"
@@ -538,60 +451,72 @@ export default function MerchStore() {
               </button>
             </div>
 
-            {/* Product Details */}
-            <div className="p-6">
-              <h2 className="text-2xl font-black lowercase mb-2">{selectedProduct.name}</h2>
-              <p className="text-3xl font-black text-brand-pink mb-4">
-                ${(selectedProduct.price / 100).toFixed(2)}
-              </p>
+            <div className="p-4 sm:p-6">
+              <h2 className="text-xl sm:text-2xl font-black lowercase mb-1">{selectedProduct.name}</h2>
+              <p className="text-2xl sm:text-3xl font-black text-brand-pink mb-3">£{(selectedProduct.price / 100).toFixed(2)}</p>
 
               {selectedProduct.description && (
-                <p className="text-gray-600 mb-4 lowercase">{selectedProduct.description}</p>
+                <p className="text-gray-600 mb-3 text-sm lowercase">{selectedProduct.description}</p>
               )}
 
-              {selectedProduct.size && (
+              {selectedProduct.type === "tshirt" && selectedProduct.sizes && (
                 <div className="mb-4">
-                  <span className="text-sm font-bold text-gray-500 lowercase">size: </span>
-                  <span className="font-black">{selectedProduct.size}</span>
-                </div>
-              )}
-
-              {/* Quantity Selector for bulk items */}
-              {isBulkProduct && (
-                <div className="flex items-center gap-4 mb-6">
-                  <span className="font-bold lowercase">quantity:</span>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => setModalQuantity((q) => Math.max(1, q - 1))}
-                      className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center font-bold hover:bg-gray-300 active:scale-95 transition-all"
-                    >
-                      -
-                    </button>
-                    <span className="font-black text-xl w-8 text-center">{modalQuantity}</span>
-                    <button
-                      onClick={() => setModalQuantity((q) => Math.min(10, q + 1))}
-                      className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center font-bold hover:bg-gray-300 active:scale-95 transition-all"
-                    >
-                      +
-                    </button>
+                  <p className="text-sm font-bold text-gray-600 lowercase mb-2">select size</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {selectedProduct.sizes.map((size) => {
+                      const stock = inventory[selectedProduct.id]?.[size.label] ?? 0;
+                      const disabled = stock <= 0;
+                      const active = selectedSize === size.label;
+                      return (
+                        <button
+                          key={size.label}
+                          onClick={() => {
+                            if (disabled) return;
+                            setSelectedSize(size.label);
+                            setModalQuantity(1);
+                          }}
+                          className={`px-3 py-1.5 rounded-full border text-sm font-bold ${
+                            disabled
+                              ? "opacity-40 cursor-not-allowed"
+                              : active
+                              ? "bg-black text-white border-black"
+                              : "bg-white text-black border-black/30"
+                          }`}
+                        >
+                          {size.label} ({stock})
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
-              {/* Add to Cart Button */}
+              <div className="flex items-center gap-4 mb-4">
+                <span className="font-bold lowercase text-sm">quantity:</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setModalQuantity((q) => Math.max(1, q - 1))}
+                    className="w-9 h-9 bg-gray-200 rounded-full flex items-center justify-center font-bold hover:bg-gray-300 active:scale-95 transition-all"
+                  >
+                    -
+                  </button>
+                  <span className="font-black text-lg w-6 text-center">{modalQuantity}</span>
+                  <button
+                    onClick={() => setModalQuantity((q) => Math.min(quantityMax, q + 1))}
+                    className="w-9 h-9 bg-gray-200 rounded-full flex items-center justify-center font-bold hover:bg-gray-300 active:scale-95 transition-all"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
               <button
                 onClick={addToCartFromModal}
-                className="w-full bg-brand-pink text-white font-black py-4 rounded-full text-lg lowercase hover:bg-pink-600 active:scale-95 transition-all"
+                disabled={selectedProduct.type === "tshirt" && !selectedSize}
+                className="w-full bg-brand-pink text-white font-black py-3 sm:py-4 rounded-full text-base sm:text-lg lowercase hover:bg-pink-600 active:scale-95 transition-all disabled:opacity-50"
               >
-                add to cart • ${((selectedProduct.price * modalQuantity) / 100).toFixed(2)}
+                add to cart • £{((selectedProduct.price * modalQuantity) / 100).toFixed(2)}
               </button>
-
-              {/* Note for t-shirts */}
-              {selectedProduct.type === "tshirt" && (
-                <p className="text-center text-sm text-gray-500 mt-3 lowercase">
-                  one of a kind • only 1 available
-                </p>
-              )}
             </div>
           </div>
         </div>

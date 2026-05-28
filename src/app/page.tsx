@@ -24,8 +24,8 @@ export default function StorePage() {
 
         {/* Instructions */}
         <section className="w-full max-w-lg px-6 z-40">
-          <p className="label-bold text-center">
-            drag to browse • tap items to add to cart
+          <p className="label-bold text-left">
+            drag to browse • tap items to view
           </p>
         </section>
 
