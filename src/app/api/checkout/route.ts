@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { PRODUCT_BY_ID } from "@/config/products";
 import { getStripeSecretKey } from "@/lib/stripe-keys";
+import {
+  releaseReservations,
+  reserveTshirtStock,
+  encodeReservations,
+  saveReservation,
+  type ShirtSize,
+  type StockReservation,
+} from "@/lib/inventory";
 
 function absoluteImageUrl(origin: string, imagePath: string): string {
   if (imagePath.startsWith("http://") || imagePath.startsWith("https://")) {
@@ -36,6 +44,8 @@ export async function POST(req: NextRequest) {
     }
 
     const lineItems = [];
+    const reservations: StockReservation[] = [];
+
     for (const item of items) {
       const productId: string = item?.productId;
       const quantity: number = Number(item?.quantity ?? 0);
@@ -58,6 +68,19 @@ export async function POST(req: NextRequest) {
         if (!validSize) {
           return NextResponse.json({ error: "Invalid t-shirt size" }, { status: 400 });
         }
+
+        const size = selectedSize as ShirtSize;
+        const reserved = await reserveTshirtStock(productId, size, quantity);
+        if (!reserved) {
+          await releaseReservations(reservations);
+          return NextResponse.json(
+            {
+              error: `Not enough stock for ${product.name} (${selectedSize}). Please refresh and try again.`,
+            },
+            { status: 409 }
+          );
+        }
+        reservations.push({ productId, size, quantity });
       }
 
       const lineItemName =
@@ -89,10 +112,15 @@ export async function POST(req: NextRequest) {
     const domesticShippingAmount = hasTshirt ? 499 : 250;
     const internationalShippingAmount = hasTshirt ? 1000 : hasCd ? 700 : 1000;
 
-    const session = await stripe.checkout.sessions.create({
+    let session: Stripe.Checkout.Session;
+    try {
+      session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       line_items: lineItems,
       mode: "payment",
+      metadata: {
+        reservations: encodeReservations(reservations),
+      },
       success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/`,
       shipping_address_collection: {
@@ -123,6 +151,14 @@ export async function POST(req: NextRequest) {
         },
       ],
     });
+    } catch (stripeError) {
+      await releaseReservations(reservations);
+      throw stripeError;
+    }
+
+    if (reservations.length > 0) {
+      await saveReservation(session.id, reservations);
+    }
 
     return NextResponse.json({ sessionId: session.id, url: session.url });
   } catch (error) {

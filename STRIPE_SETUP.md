@@ -33,8 +33,24 @@ Use test keys to simulate purchases without real money:
 3. Update environment variables in Vercel
 4. Test with a real small purchase
 
-## Webhooks (Optional)
+## T-shirt inventory (required for production)
 
-For order confirmation emails or inventory tracking, set up webhooks:
-- Endpoint: `https://yoursite.com/api/webhook`
-- Events: `checkout.session.completed`
+Stock is stored in **Vercel KV / Upstash Redis** (not in the browser). This prevents overselling after real payments.
+
+1. In Vercel → your project → **Storage** → create a **Redis** (Upstash) database and connect it to the project.
+2. Vercel will add `KV_REST_API_URL` and `KV_REST_API_TOKEN` automatically.
+3. Redeploy after linking storage.
+
+Local dev without Redis uses `data/tshirt-inventory.json` (created automatically).
+
+## Webhooks (required for inventory)
+
+When a customer abandons Checkout, reserved stock is put back:
+
+1. Stripe Dashboard → **Developers → Webhooks** → Add endpoint  
+   `https://YOUR-DOMAIN.vercel.app/api/webhooks/stripe`
+2. Events: `checkout.session.completed`, `checkout.session.expired`
+3. Copy the signing secret into Vercel as `STRIPE_WEBHOOK_SECRET`
+4. Redeploy
+
+Stock is **reserved** when Checkout starts and **released** if the session expires without payment.

@@ -33,6 +33,9 @@ yarn-error.log*
 
 .env*
 
+# local dev inventory (production uses Vercel KV / Redis)
+/data/tshirt-inventory.json
+
 # vercel
 .vercel
 

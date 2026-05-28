@@ -52,17 +52,27 @@ type DragState = {
 
 type InventoryMap = Record<string, Record<ShirtSize, number>>;
 
-function buildInitialInventory(): InventoryMap {
-  const inventory: InventoryMap = {};
-  for (const product of PRODUCTS) {
-    if (product.type !== "tshirt" || !product.sizes) continue;
-    const sizeMap = { S: 0, M: 0, L: 0, XL: 0 };
-    for (const size of product.sizes) {
-      sizeMap[size.label] = size.stock;
-    }
-    inventory[product.id] = sizeMap;
-  }
-  return inventory;
+function cartQtyForSize(cart: CartItem[], productId: string, size: ShirtSize): number {
+  return cart
+    .filter((item) => item.productId === productId && item.selectedSize === size)
+    .reduce((sum, item) => sum + item.quantity, 0);
+}
+
+function availableStock(
+  inventory: InventoryMap,
+  cart: CartItem[],
+  productId: string,
+  size: ShirtSize
+): number {
+  const onHand = inventory[productId]?.[size] ?? 0;
+  return Math.max(0, onHand - cartQtyForSize(cart, productId, size));
+}
+
+async function fetchInventory(): Promise<InventoryMap> {
+  const response = await fetch("/api/inventory", { cache: "no-store" });
+  if (!response.ok) throw new Error("Failed to load inventory");
+  const data = await response.json();
+  return data.inventory as InventoryMap;
 }
 
 function generateInitialItems(windowWidth: number, windowHeight: number): FloatingItem[] {
@@ -101,7 +111,7 @@ export default function MerchStore() {
   const [items, setItems] = useState<FloatingItem[]>([]);
   const [mounted, setMounted] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [inventory, setInventory] = useState<InventoryMap>(buildInitialInventory);
+  const [inventory, setInventory] = useState<InventoryMap>({});
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedSize, setSelectedSize] = useState<ShirtSize | null>(null);
@@ -126,6 +136,22 @@ export default function MerchStore() {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  const refreshInventory = useCallback(async () => {
+    try {
+      const next = await fetchInventory();
+      setInventory(next);
+    } catch (error) {
+      console.error("Inventory refresh error:", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshInventory();
+    const onFocus = () => refreshInventory();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refreshInventory]);
 
   const startDrag = useCallback((clientX: number, clientY: number, id: string) => {
     const item = items.find((it) => it.id === id);
@@ -212,15 +238,8 @@ export default function MerchStore() {
     const isShirt = selectedProduct.type === "tshirt";
     if (isShirt) {
       if (!selectedSize) return;
-      const available = inventory[selectedProduct.id]?.[selectedSize] ?? 0;
+      const available = availableStock(inventory, cart, selectedProduct.id, selectedSize);
       if (available < modalQuantity) return;
-      setInventory((prev) => ({
-        ...prev,
-        [selectedProduct.id]: {
-          ...prev[selectedProduct.id],
-          [selectedSize]: prev[selectedProduct.id][selectedSize] - modalQuantity,
-        },
-      }));
     }
 
     const cartKey = `${selectedProduct.id}:${selectedSize ?? "NA"}`;
@@ -250,17 +269,6 @@ export default function MerchStore() {
   };
 
   const removeFromCart = (targetKey: string) => {
-    const removed = cart.find((item) => `${item.productId}:${item.selectedSize ?? "NA"}` === targetKey);
-    if (removed && removed.selectedSize) {
-      const size = removed.selectedSize as ShirtSize;
-      setInventory((prev) => ({
-        ...prev,
-        [removed.productId]: {
-          ...prev[removed.productId],
-          [size]: (prev[removed.productId]?.[size] ?? 0) + removed.quantity,
-        },
-      }));
-    }
     setCart((prev) => prev.filter((item) => `${item.productId}:${item.selectedSize ?? "NA"}` !== targetKey));
   };
 
@@ -283,6 +291,7 @@ export default function MerchStore() {
       });
       const data = await response.json();
       if (!response.ok) {
+        await refreshInventory();
         throw new Error(data?.error ?? "Checkout failed");
       }
       if (data.url) {
@@ -306,7 +315,7 @@ export default function MerchStore() {
 
   const selectedSizeStock =
     selectedProduct?.type === "tshirt" && selectedSize
-      ? inventory[selectedProduct.id]?.[selectedSize] ?? 0
+      ? availableStock(inventory, cart, selectedProduct.id, selectedSize)
       : 999;
   const quantityMax = Math.max(1, Math.min(10, selectedSizeStock));
 
@@ -464,7 +473,7 @@ export default function MerchStore() {
                   <p className="text-sm font-bold text-gray-600 lowercase mb-2">select size</p>
                   <div className="flex gap-2 flex-wrap">
                     {selectedProduct.sizes.map((size) => {
-                      const stock = inventory[selectedProduct.id]?.[size.label] ?? 0;
+                      const stock = availableStock(inventory, cart, selectedProduct.id, size.label);
                       const disabled = stock <= 0;
                       const active = selectedSize === size.label;
                       return (
