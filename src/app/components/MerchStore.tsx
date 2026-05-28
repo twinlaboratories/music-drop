@@ -257,11 +257,12 @@ export default function MerchStore() {
   const removeFromCart = (targetKey: string) => {
     const removed = cart.find((item) => `${item.productId}:${item.selectedSize ?? "NA"}` === targetKey);
     if (removed && removed.selectedSize) {
+      const size = removed.selectedSize as ShirtSize;
       setInventory((prev) => ({
         ...prev,
         [removed.productId]: {
           ...prev[removed.productId],
-          [removed.selectedSize]: (prev[removed.productId]?.[removed.selectedSize] ?? 0) + removed.quantity,
+          [size]: (prev[removed.productId]?.[size] ?? 0) + removed.quantity,
         },
       }));
     }
@@ -289,7 +290,7 @@ export default function MerchStore() {
       if (!response.ok) throw new Error(data?.error ?? "Checkout failed");
       const stripe = await stripePromise;
       if (stripe) {
-        await stripe.redirectToCheckout({ sessionId: data.sessionId });
+        await (stripe as any).redirectToCheckout({ sessionId: data.sessionId });
       }
     } catch (error) {
       console.error("Checkout error:", error);

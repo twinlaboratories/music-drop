@@ -3,7 +3,7 @@ import Stripe from "stripe";
 import { PRODUCT_BY_ID } from "@/config/products";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
-  apiVersion: "2024-12-18.acacia",
+  apiVersion: "2026-04-22.dahlia",
 });
 
 export async function POST(req: NextRequest) {
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No items provided" }, { status: 400 });
     }
 
-    const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
+    const lineItems = [];
     for (const item of items) {
       const productId: string = item?.productId;
       const quantity: number = Number(item?.quantity ?? 0);
