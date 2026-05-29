@@ -3,18 +3,25 @@ import {
   buildInitialInventoryFromProducts,
   catalogInventoryForClient,
   getInventoryWithMeta,
+  redisEnvDiagnostics,
   syncInventoryFromProducts,
 } from "@/lib/inventory";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const debug = req.nextUrl.searchParams.get("debug") === "1";
   try {
     const { inventory, source } = await getInventoryWithMeta();
-    return NextResponse.json({ inventory, source });
+    return NextResponse.json({
+      inventory,
+      source,
+      ...(debug ? { diagnostics: redisEnvDiagnostics() } : {}),
+    });
   } catch (error) {
     console.error("Inventory read error:", error);
     return NextResponse.json({
       inventory: catalogInventoryForClient(),
       source: "catalog-fallback",
+      ...(debug ? { diagnostics: redisEnvDiagnostics() } : {}),
     });
   }
 }

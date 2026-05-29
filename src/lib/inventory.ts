@@ -14,11 +14,52 @@ const SIZES: ShirtSize[] = ["S", "M", "L", "XL"];
 const DATA_FILE = path.join(process.cwd(), "data", "tshirt-inventory.json");
 const LEGACY_INVENTORY_KEY = "tshirt-inventory:v1";
 
+/**
+ * Resolve Upstash Redis REST credentials.
+ * Vercel Marketplace integrations may use a custom env var prefix
+ * (e.g. STORAGE_KV_REST_API_URL), so we auto-detect any matching pair.
+ */
+function resolveRedisCredentials(): { url: string; token: string } | null {
+  const env = process.env;
+
+  // 1. Known standard names first
+  const knownPairs: Array<[string | undefined, string | undefined]> = [
+    [env.KV_REST_API_URL, env.KV_REST_API_TOKEN],
+    [env.UPSTASH_REDIS_REST_URL, env.UPSTASH_REDIS_REST_TOKEN],
+    [env.REDIS_REST_API_URL, env.REDIS_REST_API_TOKEN],
+  ];
+  for (const [url, token] of knownPairs) {
+    if (url?.startsWith("https://") && token) return { url, token };
+  }
+
+  // 2. Auto-detect: find a REST URL var, then its paired TOKEN var
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value !== "string" || !value.startsWith("https://")) continue;
+    if (!/upstash\.io/.test(value) && !/REST_API_URL$|REDIS_REST_URL$/.test(key)) continue;
+
+    const tokenKey = key
+      .replace(/REST_API_URL$/, "REST_API_TOKEN")
+      .replace(/REDIS_REST_URL$/, "REDIS_REST_TOKEN")
+      .replace(/_URL$/, "_TOKEN");
+    const token = env[tokenKey];
+    if (token) return { url: value, token };
+  }
+
+  return null;
+}
+
 function getRedis(): Redis | null {
-  const url = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return null;
-  return new Redis({ url, token });
+  const creds = resolveRedisCredentials();
+  if (!creds) return null;
+  return new Redis({ url: creds.url, token: creds.token });
+}
+
+/** Names (not values) of Redis-related env vars, for diagnostics */
+export function redisEnvDiagnostics(): { detected: boolean; candidateKeys: string[] } {
+  const candidateKeys = Object.keys(process.env).filter((key) =>
+    /(KV|REDIS|UPSTASH|STORAGE)/i.test(key)
+  );
+  return { detected: getRedis() !== null, candidateKeys };
 }
 
 function canUseFileStorage(): boolean {
