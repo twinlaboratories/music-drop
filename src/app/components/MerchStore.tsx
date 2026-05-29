@@ -19,6 +19,8 @@ const getSizes = (width: number) => {
 
 type ShirtSize = "S" | "M" | "L" | "XL";
 
+const PENDING_CHECKOUT_KEY = "pendingCheckoutSessionId";
+
 interface CartItem {
   productId: string;
   name: string;
@@ -159,12 +161,44 @@ export default function MerchStore() {
     setInventory(next);
   }, []);
 
+  // If the customer left for Stripe Checkout and came back without paying,
+  // release the stock that was reserved when the session was created.
+  const reconcilePendingCheckout = useCallback(async () => {
+    let pending: string | null = null;
+    try {
+      pending = localStorage.getItem(PENDING_CHECKOUT_KEY);
+    } catch {
+      pending = null;
+    }
+    if (!pending) return;
+    try {
+      localStorage.removeItem(PENDING_CHECKOUT_KEY);
+    } catch {
+      /* ignore */
+    }
+    try {
+      await fetch("/api/checkout/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: pending }),
+      });
+    } catch (error) {
+      console.error("Failed to release abandoned checkout:", error);
+    }
+  }, []);
+
   useEffect(() => {
-    refreshInventory();
-    const onFocus = () => refreshInventory();
+    (async () => {
+      await reconcilePendingCheckout();
+      await refreshInventory();
+    })();
+    const onFocus = async () => {
+      await reconcilePendingCheckout();
+      await refreshInventory();
+    };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [refreshInventory]);
+  }, [refreshInventory, reconcilePendingCheckout]);
 
   const startDrag = useCallback((clientX: number, clientY: number, id: string) => {
     const item = items.find((it) => it.id === id);
@@ -308,6 +342,13 @@ export default function MerchStore() {
         throw new Error(data?.error ?? "Checkout failed");
       }
       if (data.url) {
+        if (data.sessionId) {
+          try {
+            localStorage.setItem(PENDING_CHECKOUT_KEY, data.sessionId);
+          } catch {
+            /* ignore */
+          }
+        }
         window.location.href = data.url;
         return;
       }

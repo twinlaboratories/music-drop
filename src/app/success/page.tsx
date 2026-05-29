@@ -1,4 +1,15 @@
+"use client";
+import { useEffect } from "react";
+
 export default function SuccessPage() {
+  useEffect(() => {
+    try {
+      localStorage.removeItem("pendingCheckoutSessionId");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-[#FF69B4]/30 via-[#ADFF2F]/25 to-white flex flex-col items-center justify-center p-6">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
