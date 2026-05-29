@@ -66,6 +66,48 @@ function canUseFileStorage(): boolean {
   return process.env.NODE_ENV === "development" && !process.env.VERCEL;
 }
 
+/**
+ * Best-effort in-memory inventory, used only when neither Redis nor file
+ * storage is available (e.g. deployed without a Redis integration connected).
+ *
+ * This lives for the lifetime of a single serverless instance and is NOT
+ * shared across instances, so it provides only soft oversell protection.
+ * Connect Redis for durable, atomic stock control. The point of this fallback
+ * is to keep the store sellable instead of hard-blocking every checkout.
+ */
+const memoryInventory: TshirtInventory = {};
+let memorySeeded = false;
+
+function ensureMemorySeeded(): void {
+  if (memorySeeded) return;
+  Object.assign(memoryInventory, buildInitialInventoryFromProducts());
+  memorySeeded = true;
+}
+
+function memoryReserve(productId: string, size: ShirtSize, quantity: number): ReserveResult {
+  ensureMemorySeeded();
+  const available = memoryInventory[productId]?.[size] ?? 0;
+  if (available < quantity) {
+    return { ok: false, reason: "insufficient", message: "Not enough stock" };
+  }
+  memoryInventory[productId][size] = available - quantity;
+  return { ok: true };
+}
+
+function memoryRelease(productId: string, size: ShirtSize, quantity: number): void {
+  ensureMemorySeeded();
+  if (!memoryInventory[productId]) return;
+  memoryInventory[productId][size] = (memoryInventory[productId][size] ?? 0) + quantity;
+}
+
+function cloneInventory(inventory: TshirtInventory): TshirtInventory {
+  const copy: TshirtInventory = {};
+  for (const [productId, sizes] of Object.entries(inventory)) {
+    copy[productId] = { ...sizes };
+  }
+  return copy;
+}
+
 function skuKey(productId: string, size: ShirtSize): string {
   return `inv:${productId}:${size}`;
 }
@@ -156,7 +198,10 @@ async function loadRedisInventory(redis: Redis): Promise<TshirtInventory> {
   return inventory;
 }
 
-async function loadInventory(): Promise<{ inventory: TshirtInventory; source: "redis" | "file" | "catalog" }> {
+async function loadInventory(): Promise<{
+  inventory: TshirtInventory;
+  source: "redis" | "file" | "catalog" | "memory";
+}> {
   const redis = getRedis();
   if (redis) {
     try {
@@ -172,7 +217,8 @@ async function loadInventory(): Promise<{ inventory: TshirtInventory; source: "r
     return { inventory: await readFileInventory(), source: "file" };
   }
 
-  return { inventory: buildInitialInventoryFromProducts(), source: "catalog" };
+  ensureMemorySeeded();
+  return { inventory: cloneInventory(memoryInventory), source: "memory" };
 }
 
 export async function getTshirtInventory(): Promise<TshirtInventory> {
@@ -182,7 +228,7 @@ export async function getTshirtInventory(): Promise<TshirtInventory> {
 
 export async function getInventoryWithMeta(): Promise<{
   inventory: TshirtInventory;
-  source: "redis" | "file" | "catalog";
+  source: "redis" | "file" | "catalog" | "memory";
 }> {
   return loadInventory();
 }
@@ -229,11 +275,13 @@ export async function reserveTshirtStock(
       await writeFileInventory(inventory);
       return { ok: true };
     }
-    return {
-      ok: false,
-      reason: "storage",
-      message: "Inventory storage is not available. Connect Redis in Vercel and redeploy.",
-    };
+    // No durable storage configured: fall back to best-effort in-memory stock
+    // so the store stays sellable. Connect Redis for atomic, cross-instance
+    // protection (see STRIPE_SETUP.md).
+    console.warn(
+      "reserveTshirtStock: Redis not configured; using in-memory inventory fallback."
+    );
+    return memoryReserve(productId, size, quantity);
   }
 
   try {
@@ -275,7 +323,10 @@ export async function releaseTshirtStock(
     }
   }
 
-  if (!canUseFileStorage()) return;
+  if (!canUseFileStorage()) {
+    memoryRelease(productId, size, quantity);
+    return;
+  }
 
   const inventory = await readFileInventory();
   inventory[productId][size] = (inventory[productId]?.[size] ?? 0) + quantity;

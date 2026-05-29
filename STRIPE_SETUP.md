@@ -33,13 +33,15 @@ Use test keys to simulate purchases without real money:
 3. Update environment variables in Vercel
 4. Test with a real small purchase
 
-## T-shirt inventory (required for production)
+## T-shirt inventory (recommended for production)
 
-Stock is stored in **Vercel KV / Upstash Redis** (not in the browser). This prevents overselling after real payments.
+Stock is stored in **Vercel KV / Upstash Redis** (not in the browser). This gives atomic, cross-instance protection against overselling after real payments.
 
 1. In Vercel → your project → **Storage** → create a **Redis** (Upstash) database and connect it to the project.
 2. Vercel will add `KV_REST_API_URL` and `KV_REST_API_TOKEN` automatically.
 3. Redeploy after linking storage.
+
+**Without Redis, the store still works.** Checkout falls back to a best-effort in-memory stock count seeded from `src/config/products.ts`, so t-shirts remain buyable. The caveat: this count is per serverless instance and resets on redeploy/scale, so it offers only soft oversell protection. Connect Redis for durable, accurate stock.
 
 Local dev without Redis uses `data/tshirt-inventory.json` (created automatically).
 
