@@ -1,35 +1,19 @@
-import MerchStore from "./components/MerchStore";
+import LondonMap from "./components/LondonMap";
 
-export default function StorePage() {
+// The sale is currently closed. The full store is preserved in
+// src/app/_store/StorePage.tsx — to re-open a future sale, replace the
+// closed-sale screen below with:
+//
+//   import StorePage from "./_store/StorePage";
+//   export default StorePage;
+//
+// The background is a 3D map of London where secret merch drop locations are
+// pinned. Tapping the centered twins logo tours through them. Edit the list in
+// src/config/dropLocations.ts.
+export default function Page() {
   return (
-    <>
-      <MerchStore />
-
-      <main className="relative min-h-screen flex flex-col items-center pb-16 bg-gradient-to-br from-[#FF69B4]/30 via-[#ADFF2F]/25 to-white">
-
-        {/* Nav */}
-        <nav className="w-full max-w-lg flex justify-between items-center px-6 pt-8 pb-2 z-40">
-          <span className="text-brand-pink font-black text-xl tracking-tighter lowercase">
-            there&amp;back
-          </span>
-          <span className="font-black text-black text-xl lowercase">merch</span>
-        </nav>
-
-        {/* Hero */}
-        <section className="w-full max-w-lg px-6 pt-6 pb-4 z-40">
-          <h1 className="hero-title">
-            official<br />merchandise
-          </h1>
-        </section>
-
-        {/* Instructions */}
-        <section className="w-full max-w-lg px-6 z-40">
-          <p className="label-bold text-left">
-            drag to browse • tap items to view
-          </p>
-        </section>
-
-      </main>
-    </>
+    <main className="relative h-screen w-screen overflow-hidden bg-black">
+      <LondonMap />
+    </main>
   );
 }
