@@ -111,7 +111,7 @@ export default function LondonMap() {
       zoom: 14.5,
       pitch: 60,
       bearing: -20,
-      antialias: true,
+      canvasContextAttributes: { antialias: true },
       attributionControl: false,
     });
     mapRef.current = map;
