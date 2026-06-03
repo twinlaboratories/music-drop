@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import Image from "next/image";
 import maplibregl, { type StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { dropLocations, LONDON_CENTER } from "@/config/dropLocations";
+import { LONDON_CENTER } from "@/config/dropLocations";
 
 // Logo palette (rainbow gradient): magenta → orange → yellow → lime.
 const PALETTE = {
@@ -100,43 +100,6 @@ const neonStyle: StyleSpecification = {
 export default function LondonMap() {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const markersRef = useRef<maplibregl.Marker[]>([]);
-  const indexRef = useRef<number>(-1);
-  const touringRef = useRef<boolean>(false);
-
-  // Advance to the next drop location each time the logo is clicked: fly the
-  // camera there and pop open its label.
-  const tourNextLocation = useCallback(() => {
-    const map = mapRef.current;
-    if (!map || dropLocations.length === 0) return;
-
-    // Entering tour mode stops the idle auto-rotation.
-    touringRef.current = true;
-
-    indexRef.current = (indexRef.current + 1) % dropLocations.length;
-    const loc = dropLocations[indexRef.current];
-
-    // Close any open popups before moving.
-    markersRef.current.forEach((m) => {
-      const p = m.getPopup();
-      if (p && p.isOpen()) m.togglePopup();
-    });
-
-    map.flyTo({
-      center: [loc.lng, loc.lat],
-      zoom: 15.5,
-      pitch: 60,
-      bearing: -20,
-      duration: 2600,
-      essential: true,
-    });
-
-    map.once("moveend", () => {
-      const marker = markersRef.current[indexRef.current];
-      const popup = marker?.getPopup();
-      if (marker && popup && !popup.isOpen()) marker.togglePopup();
-    });
-  }, []);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -145,7 +108,7 @@ export default function LondonMap() {
       container: containerRef.current,
       style: neonStyle,
       center: LONDON_CENTER,
-      zoom: 13.5,
+      zoom: 14.5,
       pitch: 60,
       bearing: -20,
       antialias: true,
@@ -153,17 +116,12 @@ export default function LondonMap() {
     });
     mapRef.current = map;
 
-    map.addControl(
-      new maplibregl.AttributionControl({ compact: true }),
-      "bottom-right"
-    );
-
     // Gentle, continuous rotation for a living 3D feel while idle. Pauses while
-    // the user interacts, and stops entirely once the location tour begins.
+    // the user interacts with the map, then resumes.
     let rotating = true;
     let rafId = 0;
     const spin = () => {
-      if (rotating && !touringRef.current && mapRef.current) {
+      if (rotating && mapRef.current) {
         mapRef.current.setBearing(mapRef.current.getBearing() + 0.02);
       }
       rafId = requestAnimationFrame(spin);
@@ -172,7 +130,7 @@ export default function LondonMap() {
       rotating = false;
     };
     const resume = () => {
-      if (!touringRef.current) rotating = true;
+      rotating = true;
     };
     map.on("mousedown", pause);
     map.on("touchstart", pause);
@@ -181,37 +139,12 @@ export default function LondonMap() {
 
     map.on("load", () => {
       rafId = requestAnimationFrame(spin);
-
-      // Drop-location pins, styled as glowing logo-coloured markers.
-      markersRef.current = dropLocations.map((loc) => {
-        const el = document.createElement("div");
-        el.className = "drop-pin";
-        if (!loc.revealed) el.classList.add("drop-pin--mystery");
-
-        const popup = new maplibregl.Popup({
-          offset: 18,
-          closeButton: false,
-          className: "drop-popup",
-        }).setHTML(
-          loc.revealed
-            ? `<strong>${loc.name}</strong>${
-                loc.hint ? `<span>${loc.hint}</span>` : ""
-              }`
-            : `<strong>secret drop</strong><span>location coming soon</span>`
-        );
-
-        return new maplibregl.Marker({ element: el, anchor: "bottom" })
-          .setLngLat([loc.lng, loc.lat])
-          .setPopup(popup)
-          .addTo(map);
-      });
     });
 
     return () => {
       cancelAnimationFrame(rafId);
       map.remove();
       mapRef.current = null;
-      markersRef.current = [];
     };
   }, []);
 
@@ -219,25 +152,17 @@ export default function LondonMap() {
     <>
       <div ref={containerRef} className="absolute inset-0 h-full w-full" />
 
-      {/* Twins logo, small, centered. Click to tour the drop locations.
-          `mix-blend-screen` drops the logo's black background so it glows
-          over the map instead of showing as a black square. */}
+      {/* Twins logo, small, centered. `mix-blend-screen` drops the logo's
+          black background so it glows over the map. */}
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <button
-          type="button"
-          onClick={tourNextLocation}
-          aria-label="Show next secret drop location"
-          className="pointer-events-auto cursor-pointer transition-transform duration-300 hover:scale-110 active:scale-95"
-        >
-          <Image
-            src="/twins-logo.png"
-            alt="The Twins"
-            width={96}
-            height={96}
-            priority
-            className="w-24 h-auto select-none mix-blend-screen"
-          />
-        </button>
+        <Image
+          src="/twins-logo.png"
+          alt="The Twins"
+          width={96}
+          height={96}
+          priority
+          className="w-24 h-auto select-none mix-blend-screen"
+        />
       </div>
     </>
   );
