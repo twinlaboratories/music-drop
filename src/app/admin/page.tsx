@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import AsciiLogo from "../components/AsciiLogo";
 
 type RsvpRow = {
   id: string;
@@ -122,11 +123,7 @@ export default function AdminPanel() {
   return (
     <div className="paper-site paper-site--admin">
       <header className="paper-header">
-        <img
-          src="/logos/asianpaper-admin.png"
-          alt="asianpaper"
-          className="paper-logo paper-logo--admin"
-        />
+        <AsciiLogo />
         <p className="paper-date">RSVP ADMIN</p>
       </header>
 

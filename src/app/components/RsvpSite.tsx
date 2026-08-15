@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { EVENT } from "@/config/event";
+import AsciiLogo from "./AsciiLogo";
+import AsciiFooter from "./AsciiFooter";
 
 type Step = "loading" | "form" | "confirmed" | "closed";
 
@@ -71,13 +73,10 @@ export default function RsvpSite() {
   }
 
   return (
-    <div className="paper-site">
+    <div className="paper-site paper-site--rsvp">
+      <AsciiFooter />
       <header className="paper-header">
-        <img
-          src="/logos/asianpaper-rsvp.png"
-          alt="asianpaper"
-          className="paper-logo"
-        />
+        <AsciiLogo />
         <p className="paper-date">{EVENT.date}</p>
       </header>
 
