@@ -36,7 +36,7 @@ body {
 }
 
 .paper-site--rsvp {
-  padding-bottom: calc(34vh + 24px);
+  padding-bottom: calc(34vh + 48px);
 }
 
 .paper-header {
@@ -65,6 +65,14 @@ body {
   letter-spacing: 0.16em;
   font-size: 12px;
   color: var(--paper-fg);
+}
+
+.paper-credit {
+  margin-top: auto;
+  padding-top: 28px;
+  color: var(--paper-pink);
+  font-size: 11px;
+  letter-spacing: 0.06em;
 }
 
 .paper-stamp {

@@ -15,6 +15,7 @@ export const EVENT = {
     "OPTIONLIST",
     "DJ ANT & DECKS",
     "VOREM",
+    "JEREMIAH JIM",
   ],
 } as const;
 

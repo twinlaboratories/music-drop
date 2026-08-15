@@ -161,6 +161,8 @@ ${formatLineup()}`}</pre>
           </form>
         </section>
       )}
+
+      <p className="paper-credit">design - The Twins</p>
     </div>
   );
 }
