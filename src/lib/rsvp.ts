@@ -72,7 +72,9 @@ async function writeFileStore(store: FileStore): Promise<void> {
   await fs.writeFile(DATA_FILE, JSON.stringify(store, null, 2));
 }
 
-async function loadStore(): Promise<{ store: FileStore; source: "redis" | "file" | "memory" }> {
+export type RsvpStorageSource = "redis" | "file" | "memory";
+
+async function loadStore(): Promise<{ store: FileStore; source: RsvpStorageSource }> {
   const redis = getRedis();
   if (redis) {
     try {
@@ -116,6 +118,11 @@ async function saveStore(store: FileStore): Promise<void> {
 
   memoryStore.records = store.records;
   memoryStore.settings = store.settings;
+}
+
+export async function getRsvpStorageSource(): Promise<RsvpStorageSource> {
+  const { source } = await loadStore();
+  return source;
 }
 
 export async function getRsvpStatus(): Promise<RsvpStatus> {
@@ -179,13 +186,6 @@ export async function createRsvp(fullName: string, phone: string): Promise<RsvpR
   }
 
   return record;
-}
-
-function getRsvpStatusFromStore(store: FileStore): RsvpStatus {
-  const count = store.records.length;
-  const { open, capacity } = store.settings;
-  const full = count >= capacity;
-  return { open: open && !full, capacity, count, full };
 }
 
 export class RsvpError extends Error {

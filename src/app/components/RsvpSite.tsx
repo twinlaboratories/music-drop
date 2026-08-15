@@ -14,6 +14,8 @@ type RsvpRecord = {
   createdAt: string;
 };
 
+const RSVP_STORAGE_KEY = "ap-rsvp";
+
 function formatLineup(): string {
   return EVENT.lineup.map((name) => `  ${name}`).join("\n");
 }
@@ -28,6 +30,20 @@ export default function RsvpSite() {
   const [full, setFull] = useState(false);
 
   const refreshStatus = useCallback(async () => {
+    const saved = window.localStorage.getItem(RSVP_STORAGE_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as RsvpRecord;
+        if (parsed?.fullName && parsed?.phone) {
+          setRsvp(parsed);
+          setStep("confirmed");
+          return;
+        }
+      } catch {
+        window.localStorage.removeItem(RSVP_STORAGE_KEY);
+      }
+    }
+
     const res = await fetch("/api/rsvp/status");
     if (!res.ok) {
       setStep("form");
@@ -36,7 +52,7 @@ export default function RsvpSite() {
     const data = await res.json();
     setFull(Boolean(data.full));
     if (!data.open) setStep("closed");
-    else setStep((current) => (current === "confirmed" ? current : "form"));
+    else setStep("form");
   }, []);
 
   useEffect(() => {
@@ -64,6 +80,7 @@ export default function RsvpSite() {
         return;
       }
       setRsvp(data.rsvp);
+      window.localStorage.setItem(RSVP_STORAGE_KEY, JSON.stringify(data.rsvp));
       setStep("confirmed");
     } catch {
       setError("Network error.");
@@ -132,6 +149,7 @@ ${formatLineup()}`}</pre>
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               autoComplete="tel"
+              inputMode="tel"
               required
               className="paper-input"
               placeholder="07XXX XXXXXX"

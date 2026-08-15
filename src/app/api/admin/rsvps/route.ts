@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   getRsvpSettings,
   getRsvpStatus,
+  getRsvpStorageSource,
   listRsvps,
   updateRsvpSettings,
   verifyAdminSecret,
@@ -23,15 +24,17 @@ export async function GET(req: Request) {
   const secret = getSecret(req);
   if (!verifyAdminSecret(secret)) return unauthorized();
 
-  const [status, rsvps, settings] = await Promise.all([
+  const [status, rsvps, settings, storage] = await Promise.all([
     getRsvpStatus(),
     listRsvps(),
     getRsvpSettings(),
+    getRsvpStorageSource(),
   ]);
 
   return NextResponse.json({
     status,
     settings,
+    storage,
     rsvps: rsvps.map((r) => ({
       id: r.id,
       fullName: r.fullName,

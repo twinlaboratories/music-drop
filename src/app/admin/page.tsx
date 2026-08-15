@@ -13,6 +13,7 @@ type RsvpRow = {
 type AdminData = {
   status: { open: boolean; full: boolean; count: number; capacity: number };
   settings: { open: boolean; capacity: number };
+  storage: "redis" | "file" | "memory";
   rsvps: RsvpRow[];
 };
 
@@ -162,7 +163,8 @@ export default function AdminPanel() {
             <>
               <pre className="paper-text">{`COUNT     ${data.status.count}
 CAPACITY  ${data.settings.capacity}
-STATUS    ${!data.settings.open ? "CLOSED" : data.status.full ? "FULL" : "OPEN"}`}</pre>
+STATUS    ${!data.settings.open ? "CLOSED" : data.status.full ? "FULL" : "OPEN"}
+STORAGE   ${data.storage.toUpperCase()}${data.storage === "memory" ? "\nWARNING   CONNECT REDIS OR RSVPS RESET" : ""}`}</pre>
 
               <div className="paper-actions">
                 <button
