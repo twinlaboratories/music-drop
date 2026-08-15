@@ -1,5 +1,8 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+# local Node.js binary (optional dev setup)
+/.node
+
 # dependencies
 /node_modules
 /.pnp
@@ -32,9 +35,11 @@ yarn-error.log*
 
 
 .env*
+!.env.example
 
 # local dev inventory (production uses Vercel KV / Redis)
 /data/tshirt-inventory.json
+/data/rsvps.json
 
 # vercel
 .vercel
