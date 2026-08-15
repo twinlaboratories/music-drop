@@ -68,11 +68,17 @@ body {
 }
 
 .paper-credit {
-  margin-top: auto;
-  padding-top: 28px;
+  position: fixed;
+  left: 12px;
+  bottom: calc(8px + env(safe-area-inset-bottom));
+  z-index: 2;
+  margin: 0;
+  padding: 0;
   color: var(--paper-pink);
-  font-size: 11px;
-  letter-spacing: 0.06em;
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  text-align: left;
+  line-height: 1;
 }
 
 .paper-stamp {
