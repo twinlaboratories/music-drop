@@ -56,13 +56,25 @@ function normalizeRecord(raw: Partial<RsvpRecord> & Pick<RsvpRecord, "id" | "ful
   };
 }
 
-function normalizeRecords(records: RsvpRecord[] | Partial<RsvpRecord>[] | null | undefined): RsvpRecord[] {
-  if (!records) return [];
-  return records
-    .filter((r): r is Partial<RsvpRecord> & Pick<RsvpRecord, "id" | "fullName" | "phone" | "createdAt"> =>
-      Boolean(r && r.id && r.fullName && r.phone && r.createdAt)
-    )
-    .map(normalizeRecord);
+function normalizeRecords(records: unknown): RsvpRecord[] {
+  if (!Array.isArray(records)) return [];
+  const out: RsvpRecord[] = [];
+  for (const raw of records) {
+    if (!raw || typeof raw !== "object") continue;
+    const r = raw as Partial<RsvpRecord>;
+    if (!r.id || !r.fullName || !r.phone || !r.createdAt) continue;
+    out.push(
+      normalizeRecord({
+        id: r.id,
+        fullName: r.fullName,
+        phone: r.phone,
+        createdAt: r.createdAt,
+        checkedIn: r.checkedIn,
+        checkedInAt: r.checkedInAt,
+      })
+    );
+  }
+  return out;
 }
 
 function normalizeSettings(raw: Partial<RsvpSettings> | null | undefined): RsvpSettings {
