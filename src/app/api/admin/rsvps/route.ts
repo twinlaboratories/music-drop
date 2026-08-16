@@ -4,6 +4,7 @@ import {
   getRsvpStatus,
   getRsvpStorageSource,
   listRsvps,
+  setRsvpCheckedIn,
   updateRsvpSettings,
   verifyAdminSecret,
 } from "@/lib/rsvp";
@@ -40,6 +41,8 @@ export async function GET(req: Request) {
       fullName: r.fullName,
       phone: maskPhone(r.phone),
       createdAt: r.createdAt,
+      checkedIn: r.checkedIn,
+      checkedInAt: r.checkedInAt,
     })),
   });
 }
@@ -48,7 +51,27 @@ export async function POST(req: Request) {
   const secret = getSecret(req);
   if (!verifyAdminSecret(secret)) return unauthorized();
 
-  const body = (await req.json()) as { open?: boolean; capacity?: number };
+  const body = (await req.json()) as {
+    open?: boolean;
+    capacity?: number;
+    checkIn?: { id?: string; checkedIn?: boolean };
+  };
+
+  if (body.checkIn?.id) {
+    const record = await setRsvpCheckedIn(body.checkIn.id, Boolean(body.checkIn.checkedIn));
+    if (!record) {
+      return NextResponse.json({ error: "Guest not found." }, { status: 404 });
+    }
+    return NextResponse.json({
+      ok: true,
+      rsvp: {
+        id: record.id,
+        checkedIn: record.checkedIn,
+        checkedInAt: record.checkedInAt,
+      },
+    });
+  }
+
   const partial: { open?: boolean; capacity?: number } = {};
 
   if (typeof body.open === "boolean") partial.open = body.open;

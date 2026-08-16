@@ -9,6 +9,8 @@ export type RsvpRecord = {
   fullName: string;
   phone: string;
   createdAt: string;
+  checkedIn: boolean;
+  checkedInAt?: string;
 };
 
 export type RsvpSettings = {
@@ -43,6 +45,26 @@ function defaultSettings(): RsvpSettings {
   return { open: true, capacity };
 }
 
+function normalizeRecord(raw: Partial<RsvpRecord> & Pick<RsvpRecord, "id" | "fullName" | "phone" | "createdAt">): RsvpRecord {
+  return {
+    id: raw.id,
+    fullName: raw.fullName,
+    phone: raw.phone,
+    createdAt: raw.createdAt,
+    checkedIn: Boolean(raw.checkedIn),
+    checkedInAt: raw.checkedInAt,
+  };
+}
+
+function normalizeRecords(records: RsvpRecord[] | Partial<RsvpRecord>[] | null | undefined): RsvpRecord[] {
+  if (!records) return [];
+  return records
+    .filter((r): r is Partial<RsvpRecord> & Pick<RsvpRecord, "id" | "fullName" | "phone" | "createdAt"> =>
+      Boolean(r && r.id && r.fullName && r.phone && r.createdAt)
+    )
+    .map(normalizeRecord);
+}
+
 function normalizeSettings(raw: Partial<RsvpSettings> | null | undefined): RsvpSettings {
   const defaults = defaultSettings();
   return {
@@ -56,7 +78,7 @@ async function readFileStore(): Promise<FileStore> {
     const raw = await fs.readFile(DATA_FILE, "utf-8");
     const parsed = JSON.parse(raw) as Partial<FileStore>;
     return {
-      records: parsed.records ?? [],
+      records: normalizeRecords(parsed.records),
       settings: normalizeSettings(parsed.settings),
     };
   } catch {
@@ -84,7 +106,7 @@ async function loadStore(): Promise<{ store: FileStore; source: RsvpStorageSourc
       ]);
       return {
         store: {
-          records: records ?? [],
+          records: normalizeRecords(records),
           settings: normalizeSettings(settings),
         },
         source: "redis",
@@ -147,9 +169,19 @@ export async function updateRsvpSettings(partial: Partial<RsvpSettings>): Promis
 
 export async function listRsvps(): Promise<RsvpRecord[]> {
   const { store } = await loadStore();
-  return [...store.records].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  return [...store.records].sort((a, b) =>
+    a.fullName.localeCompare(b.fullName, "en", { sensitivity: "base" })
   );
+}
+
+export async function setRsvpCheckedIn(id: string, checkedIn: boolean): Promise<RsvpRecord | null> {
+  const { store } = await loadStore();
+  const record = store.records.find((r) => r.id === id);
+  if (!record) return null;
+  record.checkedIn = checkedIn;
+  record.checkedInAt = checkedIn ? new Date().toISOString() : undefined;
+  await saveStore(store);
+  return record;
 }
 
 export async function findRsvpByPhone(phone: string): Promise<RsvpRecord | null> {
@@ -175,6 +207,7 @@ export async function createRsvp(fullName: string, phone: string): Promise<RsvpR
     fullName: fullName.trim(),
     phone,
     createdAt: new Date().toISOString(),
+    checkedIn: false,
   };
 
   store.records.push(record);

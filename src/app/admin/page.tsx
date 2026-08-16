@@ -8,6 +8,8 @@ type RsvpRow = {
   fullName: string;
   phone: string;
   createdAt: string;
+  checkedIn: boolean;
+  checkedInAt?: string;
 };
 
 type AdminData = {
@@ -109,6 +111,26 @@ export default function AdminPanel() {
     await fetchData(storedKey);
   }
 
+  async function toggleCheckIn(id: string, checkedIn: boolean) {
+    if (!storedKey || !data) return;
+    setData({
+      ...data,
+      rsvps: data.rsvps.map((r) => (r.id === id ? { ...r, checkedIn } : r)),
+    });
+    const res = await fetch("/api/admin/rsvps", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-secret": storedKey,
+      },
+      body: JSON.stringify({ checkIn: { id, checkedIn } }),
+    });
+    if (!res.ok) {
+      setError("Could not update check-in.");
+      await fetchData(storedKey);
+    }
+  }
+
   async function copyShareLink() {
     if (!storedKey) return;
     const url = `${window.location.origin}/admin?key=${encodeURIComponent(storedKey)}`;
@@ -162,6 +184,7 @@ export default function AdminPanel() {
           {data && (
             <>
               <pre className="paper-text">{`COUNT     ${data.status.count}
+IN        ${data.rsvps.filter((r) => r.checkedIn).length}
 CAPACITY  ${data.settings.capacity}
 STATUS    ${!data.settings.open ? "CLOSED" : data.status.full ? "FULL" : "OPEN"}
 STORAGE   ${data.storage.toUpperCase()}${data.storage === "memory" ? "\nWARNING   CONNECT REDIS OR RSVPS RESET" : ""}`}</pre>
@@ -202,22 +225,22 @@ STORAGE   ${data.storage.toUpperCase()}${data.storage === "memory" ? "\nWARNING 
                 </div>
               </form>
 
-              <p className="paper-label">GUEST LIST</p>
+              <p className="paper-label">GUEST LIST A-Z</p>
               {data.rsvps.length === 0 ? (
                 <p className="paper-muted">(empty)</p>
               ) : (
                 <ul className="paper-list">
-                  {data.rsvps.map((r, i) => (
-                    <li key={r.id}>
-                      <span className="paper-list-n">{i + 1}</span>
-                      <span className="paper-list-name">{r.fullName.toUpperCase()}</span>
+                  {data.rsvps.map((r) => (
+                    <li key={r.id} className={r.checkedIn ? "is-in" : ""}>
+                      <label className="paper-check">
+                        <input
+                          type="checkbox"
+                          checked={r.checkedIn}
+                          onChange={(e) => toggleCheckIn(r.id, e.target.checked)}
+                        />
+                        <span className="paper-list-name">{r.fullName.toUpperCase()}</span>
+                      </label>
                       <span className="paper-list-phone">{r.phone}</span>
-                      <span className="paper-list-time">
-                        {new Date(r.createdAt).toLocaleString("en-GB", {
-                          dateStyle: "short",
-                          timeStyle: "short",
-                        })}
-                      </span>
                     </li>
                   ))}
                 </ul>
