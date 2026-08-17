@@ -16,6 +16,7 @@ export const EVENT = {
     "DJ ANT & DECKS",
     "VOREM",
     "JEREMIAH JIM",
+    "BOY PILLOW",
   ],
 } as const;
 
