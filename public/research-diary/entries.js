@@ -101,6 +101,7 @@ entries: [
 {"id": "another-night", "group": "physical", "date": "2026-11-19T09:00", "img": "img/another-night.jpg", "w": 900, "h": 1200, "label": "Another night/Sanctuary.", "alt": "Studio room with monitors and a desk at night"},
 {"id": "peak-television", "group": "physical", "date": "2026-11-20T09:00", "img": "img/peak-television.jpg", "w": 1200, "h": 900, "label": "Peak television", "alt": "Black garment printed with a black-and-white image and handwritten text"},
 {"id": "bugonia", "group": "digital", "date": "2026-11-21T09:00", "img": "img/bugonia.jpg", "w": 504, "h": 335, "label": "Bugonia", "alt": "Film still: two beekeepers walking through a meadow towards hives", "note": "Bugonia directed by Yorgos Lanthimos and written by Will Tracy. I loved this. -J"},
-{"id": "cookie", "group": "physical", "date": "2026-11-22T09:00", "img": "img/cookie.jpg", "w": 900, "h": 1200, "label": "Cookie", "alt": "Printed photo of a small fluffy dog above the name Cookie"}
+{"id": "cookie", "group": "physical", "date": "2026-11-22T09:00", "img": "img/cookie.jpg", "w": 900, "h": 1200, "label": "Cookie", "alt": "Printed photo of a small fluffy dog above the name Cookie"},
+{"id": "music-jun-nishimura-code", "group": "music", "date": "2026-11-17T15:41", "img": "https://i.scdn.co/image/ab67616d0000b273c26f728bfec4e67c53a49c74", "w": 640, "h": 640, "label": "Jun Nishimura - CODE", "alt": "Album cover: CODE by Jun Nishimura", "note": "crazy, eclectic and peaceful and minimal. worth a listen. -J", "link": "https://open.spotify.com/album/0mdG1vbdgwXqo4297sJy39"}
 ]
 };
