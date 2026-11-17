@@ -2,11 +2,16 @@
 // groups: one per image group. title is the big heading on the group's focused page; tagline and text are optional copy shown under it.
 // entries, any order (newest first within a group; same timestamp: later in this list sits higher):
 //   photo: {id, group, date:"YYYY-MM-DDTHH:MM", img:"img/name.jpg", w, h, label (short caption), alt, note (optional)}
+//   music: a photo entry whose img is the cover's address on the streaming service, plus link (album page, not shown) and note; in a group with layout "list" the focused page shows every note beside its picture, newest first
 //   diary: {id, group, date:"YYYY-MM-DDTHH:MM", text:"..."}
+// events (calendar): {id, date:"YYYY-MM-DDTHH:MM", title, place, status:"announced"|"on sale"|"sold out", url (ticket link), note}
 window.DIARY = {
 groups: [
 {"id": "physical", "title": "physical", "tagline": "", "text": ""},
-{"id": "digital", "title": "digital", "tagline": "", "text": ""}
+{"id": "digital", "title": "digital", "tagline": "", "text": ""},
+{"id": "music", "title": "music", "tagline": "", "text": "", "layout": "list"}
+],
+events: [
 ],
 entries: [
 {"id": "slides", "group": "digital", "date": "2026-11-14T16:27", "img": "img/slides.jpg", "w": 736, "h": 736, "label": "slides", "alt": "Playground slides arranged as letters"},
@@ -87,6 +92,7 @@ entries: [
 {"id": "jacket-fur-hood", "group": "physical", "date": "2026-11-14T18:22", "img": "img/jacket-fur-hood.jpg", "w": 737, "h": 941, "label": "jacket 02", "alt": "Mannequin in an olive and navy down jacket with a fur hood"},
 {"id": "jacket-hanging", "group": "physical", "date": "2026-11-14T18:22", "img": "img/jacket-hanging.jpg", "w": 1000, "h": 1333, "label": "jacket 03", "alt": "Orange, navy and grey jacket hanging on a door"},
 {"id": "jackets-wall", "group": "physical", "date": "2026-11-14T18:22", "img": "img/jackets-wall.jpg", "w": 1000, "h": 1000, "label": "jacket 04", "alt": "Person in a blue down suit in front of a wall of down jackets"},
-{"id": "tile-ad", "group": "digital", "date": "2026-11-14T18:22", "img": "img/tile-ad.jpg", "w": 985, "h": 1280, "label": "tile ad", "alt": "Print ad built from a grid of captioned photo tiles above a large wordmark"}
+{"id": "tile-ad", "group": "digital", "date": "2026-11-14T18:22", "img": "img/tile-ad.jpg", "w": 985, "h": 1280, "label": "tile ad", "alt": "Print ad built from a grid of captioned photo tiles above a large wordmark"},
+{"id": "music-ciaran-roisin", "group": "music", "date": "2026-11-17T04:36", "img": "https://i.scdn.co/image/ab67616d0000b273d9aca49ab3e0094cc739c3b6", "w": 640, "h": 640, "label": "Ciarán - Róisín", "alt": "Album cover: Róisín by Ciarán", "note": "J- awesome album. a personal, dark, beautiful project that has a special journey from the days of BH.", "link": "https://open.spotify.com/album/62vi9DCEeLUe128est6dDQ"}
 ]
 };
